@@ -137,6 +137,4 @@ dmypy.json
 cython_debug/
 
 # Manim intermediate files
-figures/manim/media/Tex/*  
-figures/manim/media/texts/*
-figures/manim/media/**/partial_movie_files/*
+figures/manim/*
