@@ -36,14 +36,14 @@ class GenScene(Scene):
             Square(side_length=square_size, color=BLACK, fill_color=WHITE, fill_opacity=0.9)
             for _ in range(matrix_size)
         ]).arrange(DOWN, buff=0).next_to(squares, LEFT)
-        label_H = Tex("H", color=BLACK).next_to(H_group, DOWN)
+        label_H = Tex(r"$\nabla_\pi\mathcal{L}$", color=BLACK).next_to(H_group, DOWN)
         self.play(Create(H_group), FadeIn(label_H))
         
         # create HT by creating a copy of H and rotating it to the top of P
         HT_group = H_group.copy()
         HT_group.generate_target()
         HT_group.target.rotate(PI/2).next_to(squares, UP)
-        label_HT = Tex("H$^T$", color=BLACK).next_to(HT_group.target, RIGHT)
+        label_HT = Tex(r"$\nabla_\pi\mathcal{L}^T$", color=BLACK).next_to(HT_group.target, RIGHT)
         self.play(MoveToTarget(HT_group), FadeIn(label_HT))
         
         # Highlight H and HT elements
