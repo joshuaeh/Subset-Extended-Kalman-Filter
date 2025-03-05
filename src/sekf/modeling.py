@@ -1,31 +1,23 @@
-"""utilities to create, train, and manipulate models"""
-
 import torch
 from torch.func import functional_call, grad, vmap, jacrev, jacfwd
 import numpy as np
 
-from .utilities import bytes_dict
-
 # TODO: Torch/numpy scaler class
-# TODO: automatic device handling
-
-# NN modules
 class AbstractNN(torch.nn.Module):
     def __init__(self):
-        super().__init__()
-        return 
+        return super().__init__()
     
     def _init_params(self):
-        basic_weight_init(self)
+        for m in self.modules():
+            if isinstance(m, torch.nn.Linear):
+                torch.nn.init.kaiming_normal_(m.weight)
+                torch.nn.init.zeros_(m.bias)
     
     def functional_call(self, parameters, inputs):
         return torch.func.functional_call(self, parameters, inputs)
     
     def jacrev(self, inputs):
         return torch.func.jacrev(self.functional_call)(dict(self.named_parameters()), inputs)
-    
-    def jacrev_tensor(self, inputs):
-        return format_jacobian(self.jacrev(inputs), dict(self.named_parameters()))
     
 class AbstractRNN(AbstractNN):
     """Instead of each unit recurring, the entire network is recurrent. Outputs of NN are used as states at the next time.
@@ -171,21 +163,34 @@ class EarlyStopper:
             return self.counter >= self.patience
         else:
             return self.counter < self.patience
+        
 
-# functions for model interaction
-def basic_weight_init(model):
-    for m in model.modules():
-        if isinstance(m, torch.nn.Linear):
-            # xavier normal works well for symmetric nonlinearities
-            torch.nn.init.xavier_normal_(m.weight)
-            torch.nn.init.zeros_(m.bias)
-    return
-
+def MyCosineAnnealingWarmRestartsWithWarmup(optimizer,
+    warmup_start_factor=0.1,
+    warmup_end_factor=1.0,
+    warmup_duration=10,
+    T_0=10,
+    T_mult=2,
+    eta_min=0):
+    """ """
+    warmup_lr = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=warmup_start_factor, end_factor=warmup_end_factor, total_iters=warmup_duration)
+    cosine_lr = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=T_0, T_mult=T_mult, eta_min=eta_min)
+    return torch.optim.lr_scheduler.SequentialLR(optimizer, schedulers=[warmup_lr, cosine_lr], milestones=[warmup_duration])
+    
 def init_load_model(model, model_kwargs, model_save_path, device):
     m = model(**model_kwargs)
     m.load_state_dict(torch.load(model_save_path, map_location=device))
-    m.to(device)             
+    m.to(device)
+    
+def init_weights(m, nonlinearity=None):
+    """use with module.apply(init_weights)"""
+    if nonlinearity is None:
+        nonlinearity = "Sigmoid"
+    if isinstance(m, torch.nn.Linear):
+        torch.nn.init.xavier_normal_(m.weight, gain=torch.nn.init.calculate_gain(nonlinearity))
+        m.bias.data.fill_(0.01)                 
 
+# model interaction functions
 def get_parameter_info(model):
     total_elements = 0
     info_dict = {}
@@ -195,6 +200,7 @@ def get_parameter_info(model):
         total_elements += n_p
     return total_elements, info_dict
 
+
 def get_parameters(model):
     """Get the parameters of a model as a dictionary"""
     parameters = {}
@@ -202,13 +208,16 @@ def get_parameters(model):
         parameters[name] = param
     return parameters
 
+
 def get_parameter_vector(model):
     """Get the parameters of a model as a 1D tensor"""
     return torch.cat([param.flatten() for name, param in model.named_parameters()]).squeeze()
 
+
 def get_parameter_gradient_vector(model):
     """Get the gradients of the parameters of a model as a 1D tensor"""
     return torch.cat([param.grad.flatten() for name, param in model.named_parameters()]).squeeze()
+
 
 def set_parameter_vector(model, parameter_vector):
     """Set the parameters of a model from a 1D tensor"""
@@ -218,6 +227,7 @@ def set_parameter_vector(model, parameter_vector):
         param.data = parameter_vector[i : i + n].view(param.shape)
         i += n
 
+
 def set_parameter_gradient_vector(model, parameter_gradient_vector):
     """Set the gradients of the parameters of a model from a 1D tensor"""
     i = 0
@@ -226,10 +236,12 @@ def set_parameter_gradient_vector(model, parameter_gradient_vector):
         param.grad = parameter_gradient_vector[i : i + n].view(param.shape)
         i += n
 
+
 def set_parameters(model, new_parameters):
     """Set the parameters of a model from a dictionary"""
     for name, param in new_parameters.items():
         model._parameters[name] = param
+
 
 def get_selected_parameters(model, parameter_selection, n=None):
     """Get the selected parameters of a model as a 1D tensor"""
@@ -282,6 +294,7 @@ def get_jacobian(model:torch.nn.Module,
             raise ValueError(f"wrt must be 'parameters' or 'inputs', got {wrt}")
     return format_jacobian(jac_dict, dict(model.named_parameters()))
     
+
 def get_torch_model_size(model, units="mb"):
     """ """
     num_bytes = bytes_dict.get(units.upper(), 1024**2)
@@ -295,27 +308,83 @@ def get_torch_model_size(model, units="mb"):
     size_all = (param_size + buffer_size) / num_bytes
     print(f"model size: {size_all:.3f}{units.upper()}")
     return size_all
+    
+def init_weights(m):
+    if type(m) == torch.nn.Linear:
+        torch.nn.init.kaiming_normal_(m.weight)
+        m.bias.data.fill_(0.01)
+    return
 
-# model training
-def MyCosineAnnealingWarmRestartsWithWarmup(optimizer,
-    warmup_start_factor=0.1,
-    warmup_end_factor=1.0,
-    warmup_duration=10,
-    T_0=10,
-    T_mult=2,
-    eta_min=0):
-    """ """
-    warmup_lr = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=warmup_start_factor, end_factor=warmup_end_factor, total_iters=warmup_duration)
-    cosine_lr = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=T_0, T_mult=T_mult, eta_min=eta_min)
-    return torch.optim.lr_scheduler.SequentialLR(optimizer, schedulers=[warmup_lr, cosine_lr], milestones=[warmup_duration])
+def train_epoch(model, dataloader, optimizer, criterion, device=None):
+    model.train()
+    running_loss = 0
+    for i, data in enumerate(dataloader):
+        optimizer.zero_grad()
+        if device is not None:
+            X0, U, X1 = data["X0"].to(device), data["U"].to(device), data["X1"].to(device)
+        else:
+            X0, U, X1 = data["X0"], data["U"], data["X1"]
+        X_pred = model(X0, U)
+        loss = criterion(X_pred, X1)
+        loss.backward()
+        optimizer.step()
+        running_loss += loss.item()
+    return running_loss / len(dataloader)
 
-def mask_fn(grads, thresh=None, quantile_thresh=None, template=None):
+def val_epoch(model, dataloader, criterion, device=None):
+    model.eval()
+    running_loss = 0
+    with torch.no_grad():
+        for i, data in enumerate(dataloader):
+            if device is not None:
+                X0, U, X1 = data["X0"].to(device), data["U"].to(device), data["X1"].to(device)
+            else:
+                X0, U, X1 = data["X0"], data["U"], data["X1"]
+            X_pred = model(X0, U)
+            loss = criterion(X_pred, X1)
+            running_loss += loss.item()
+    return running_loss / len(dataloader)
+
+def mask_fn(grads, thresh=None, quantile_thresh=None):
     if thresh is not None:
         return grads.abs() > thresh
     elif quantile_thresh is not None:
         return grads.abs() > torch.quantile(grads.abs(), quantile_thresh)
-    elif template is not None:
-        assert template.shape == grads.shape, f"Template shape {template.shape} must match grads shape {grads.shape}"
-        return template
     else:
         return torch.ones_like(grads, dtype=torch.bool)
+
+def kf_train_epoch(model, dataloader, optimizer, criterion, mask_fn=mask_fn, device=None):
+    model.train()
+    running_loss = []
+    for i, data in enumerate(dataloader):
+        optimizer.zero_grad()
+        if device is not None:
+            X0, U, X1 = data["X0"].to(device), data["U"].to(device), data["X1"].to(device)
+        else:
+            X0, U, X1 = data["X0"], data["U"], data["X1"]
+        with torch.no_grad():
+            j = get_jacobian(model, (X0, U))
+        X_pred = model(X0, U)
+        innovation = X1 - X_pred
+        loss = criterion(X_pred, X1)
+        loss.backward()
+        grads = get_parameter_gradient_vector(model)
+        mask = mask_fn(grads)
+        optimizer.step(innovation, j, mask)
+        running_loss.append(loss.item())
+    return running_loss 
+
+def kf_val_epoch(model, dataloader, criterion, mask_fn=torch.ones_like, device=None):
+    model.eval()
+    running_loss = []
+    with torch.no_grad():
+        for i, data in enumerate(dataloader):
+            if device is not None:
+                X0, U, X1 = data["X0"].to(device), data["U"].to(device), data["X1"].to(device)
+            else:
+                X0, U, X1 = data["X0"], data["U"], data["X1"]
+            X_pred = model(X0, U)
+            # innovation = X1 - X_pred
+            loss = criterion(X_pred, X1)
+            running_loss.append(loss.item())
+    return running_loss / len(dataloader)
