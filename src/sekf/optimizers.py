@@ -153,7 +153,7 @@ class SEKF(basic_optimizer):
     def step(self, e, J, mask=None, verbose=False):
         """Performs a single optimization step.
         ARGS:
-            e (torch.Tensor): (N_out) (N_out*N_stream) innovation, 
+            e (torch.Tensor): (N_out) (N_out*N_stream) innovation, y_true - y_pred
             J (torch.Tensor): (N_out, N_params) Jacobian dy/dW change in *output* wrt parameters
             mask (torch.Tensor): (N_params) mask of which parameters to update
             verbose: (bool) whether to return additional information
