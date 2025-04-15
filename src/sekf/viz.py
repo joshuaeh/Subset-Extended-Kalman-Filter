@@ -4,6 +4,16 @@ from matplotlib.patches import Rectangle
 
 from .utils import get_ci
 
+def draw_axes(ax, linewidth=0.5, color="black"):
+    """Draws the axes on the given matplotlib axis."""
+    xlim = ax.get_xlim()
+    ylim = ax.get_ylim()
+    ax.hlines(0, xlim[0], xlim[1], color=color, linewidth=linewidth)
+    ax.vlines(0, ylim[0], ylim[1], color=color, linewidth=linewidth)
+    # reset the limits
+    ax.set_xlim(xlim)
+    ax.set_ylim(ylim)
+
 def plot_ci(data_x, data_y, ax, label=None,
     color=None, marker_fmt="o", marker_edgecolor="black", marker_edgewidth=0.5, marker_size=50,
     barx=True, bary=True, bar_color="black", bar_capsize=5, bar_thickness=1):
