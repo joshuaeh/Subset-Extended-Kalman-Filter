@@ -138,3 +138,6 @@ cython_debug/
 
 # Manim intermediate files
 figures/manim/*
+
+# Scratch notebooks
+notebooks/scratch/*
