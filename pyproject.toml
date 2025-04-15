@@ -15,12 +15,14 @@ requires-python = ">=3.8"
 dependencies = [
     "jtoolbox",
     "jupyter>=1.1.1",
+    "matplotlib",
     "numpy>=1.24.4",
     "pandas>=2.0.3",
     "scikit-learn>=1.3.2",
     "scipy>=1.10.1",
+    "seaborn",
     "torch>=2.5.1",
-    "tqdm>=4.67.1",
+    "tqdm>=4.67.1"
 ]
 [project.optional-dependencies]
 dev = []
