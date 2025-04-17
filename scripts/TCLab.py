@@ -1,4 +1,4 @@
-#! 
+#!
 #########################################################
 # Imports
 #########################################################
@@ -36,21 +36,21 @@ Q_MIN = 0
 Q_MAX = 100
 Q_RANGE = Q_MAX - Q_MIN
 
+
 #########################################################
 # Sobol Sampling
 #########################################################
 def simulate_TCLab_Data(data_prefix, m_examples, **kwargs):
     if not data_prefix.endswith("/"):
         data_prefix += "/"
-    
+
     sampler = Sobol(d=8, scramble=True, rng=rng)
-    if not logger.check_key(data_prefix+"sobol_sampling"):
+    if not logger.check_key(data_prefix + "sobol_sampling"):
         sobol_samples = sampler.random_base2(m=m_examples)
-        logger.log_attribute(data_prefix+"sobol_sampling", sobol_samples)
+        logger.log_attribute(data_prefix + "sobol_sampling", sobol_samples)
     else:
-        sobol_samples = logger.get_dataset(data_prefix+"sobol_sampling")
-        
-    
+        sobol_samples = logger.get_dataset(data_prefix + "sobol_sampling")
+
     # Initialize GEKKO system
     # must define:
     #     TH1, TH2, TC1, TC2 (initial values)
@@ -137,10 +137,10 @@ def simulate_TCLab_Data(data_prefix, m_examples, **kwargs):
     m.options.IMODE = 6  # MPC
 
     try:
-        s = logger.get_dataset(data_prefix+"Q1").shape[0]
+        s = logger.get_dataset(data_prefix + "Q1").shape[0]
     except KeyError:
         s = 0
-    
+
     for i in range(s, sobol_samples.shape[0]):
         try:
             sobol_sample = sobol_samples[i]
@@ -174,39 +174,100 @@ def simulate_TCLab_Data(data_prefix, m_examples, **kwargs):
 
             logger.log_dict(
                 {
-                    data_prefix+"T10": T10,
-                    data_prefix+"T20": T20,
-                    data_prefix+"T1sp": T1sp,
-                    data_prefix+"T2sp": T2sp,
-                    data_prefix+"TH1": TH1.value,
-                    data_prefix+"TH2": TH2.value,
-                    data_prefix+"TC1": TC1.value,
-                    data_prefix+"TC2": TC2.value,
-                    data_prefix+"Q1": Q1.value,
-                    data_prefix+"Q2": Q2.value,
-                    data_prefix+"SSE": np.array((T1sp - TC1.value)**2 + (T2sp - TC2.value)**2)
+                    data_prefix + "T10": T10,
+                    data_prefix + "T20": T20,
+                    data_prefix + "T1sp": T1sp,
+                    data_prefix + "T2sp": T2sp,
+                    data_prefix + "TH1": TH1.value,
+                    data_prefix + "TH2": TH2.value,
+                    data_prefix + "TC1": TC1.value,
+                    data_prefix + "TC2": TC2.value,
+                    data_prefix + "Q1": Q1.value,
+                    data_prefix + "Q2": Q2.value,
+                    data_prefix + "SSE": np.array((T1sp - TC1.value) ** 2 + (T2sp - TC2.value) ** 2),
                 }
             )
         except Exception as e:
             print(e)
-            logger.log_dict({
-                data_prefix+"T10": T10,
-                data_prefix+"T20": T20,
-                data_prefix+"T1sp": T1sp,
-                data_prefix+"T2sp": T2sp,
-                data_prefix+"TH1": np.nan * np.ones(61),
-                data_prefix+"TH2": np.nan * np.ones(61),
-                data_prefix+"TC1": np.nan * np.ones(61),
-                data_prefix+"TC2": np.nan * np.ones(61),
-                data_prefix+"Q1": np.nan * np.ones(61),
-                data_prefix+"Q2": np.nan * np.ones(61),
-                data_prefix+"SSE": np.nan
-            })
+            logger.log_dict(
+                {
+                    data_prefix + "T10": T10,
+                    data_prefix + "T20": T20,
+                    data_prefix + "T1sp": T1sp,
+                    data_prefix + "T2sp": T2sp,
+                    data_prefix + "TH1": np.nan * np.ones(61),
+                    data_prefix + "TH2": np.nan * np.ones(61),
+                    data_prefix + "TC1": np.nan * np.ones(61),
+                    data_prefix + "TC2": np.nan * np.ones(61),
+                    data_prefix + "Q1": np.nan * np.ones(61),
+                    data_prefix + "Q2": np.nan * np.ones(61),
+                    data_prefix + "SSE": np.nan,
+                }
+            )
     m.cleanup()
     return
-        
 
-        
+
+def tclab_sim(t10, t20, q1, q2, **kwargs):
+    ### Simulate
+    # MPC Prediction
+    tf_min = 30  # time in minutes
+    tf = tf_min * 60  # (sec)
+    n = tf_min * 2 + 1  # one point every 5 seconds
+
+    #########################################################
+    # Initialize Model
+    #########################################################
+    m = GEKKO(name="tclab-sim", remote=True)
+
+    # with a local server
+    # m = GEKKO(name='tclab-mpc',server='http://127.0.0.1',remote=True)
+
+    m.time = np.linspace(0, tf, n)  # time points for simulation
+
+    # Parameters from Estimation
+    K1 = m.FV(value=kwargs.get("k1", 0.607))
+    K2 = m.FV(value=kwargs.get("k2", 0.293))
+    K3 = m.FV(value=kwargs.get("k3", 0.24))
+    tau12 = m.FV(value=kwargs.get("tau12", 192))
+    tau3 = m.FV(value=kwargs.get("tau3", 15))
+
+    # don't update parameters with optimizer
+    # K1.STATUS = 0
+    # K2.STATUS = 0
+    # K3.STATUS = 0
+    # tau12.STATUS = 0
+    # tau3.STATUS = 0
+
+    # heater setting
+    Q1 = m.Param(name="Q1")
+    Q1.value = q1
+    Q2 = m.Param(name="Q2")
+    Q2.value = q2
+
+    # State variables
+    TH1 = m.Var(value=t10, name="th1")  # use Var to initialize with T1m[0]
+    TH2 = m.Var(value=t20, name="th2")  # use Var to initialize with T2m[0])
+    TC1 = m.Var(value=t10, name="tc1")  # use Var to initialize with T1m[0]
+    TC2 = m.Var(value=t20, name="tc2")  # use Var to initialize with T2m[0]
+    Ta = m.Param(value=23.0)  # degC
+
+    # Heat transfer between two heaters
+    DT = m.Intermediate(TH2 - TH1)
+
+    # Empirical correlations
+    m.Equation(tau12 * TH1.dt() + (TH1 - Ta) == K1 * Q1 + K3 * DT)
+    m.Equation(tau12 * TH2.dt() + (TH2 - Ta) == K2 * Q2 - K3 * DT)
+    m.Equation(tau3 * TC1.dt() + TC1 == TH1)
+    m.Equation(tau3 * TC2.dt() + TC2 == TH2)
+    m.options.IMODE = 4  # simulataneous simulation
+    m.solve(disp=False)
+
+    m.cleanup()
+
+    return TC1.value, TC2.value
+
+
 #########################################################
 # Datasets and NN Training
 #########################################################
@@ -297,6 +358,41 @@ class TCLabDataset(torch.utils.data.Dataset):
         )
 
 
+def compare_SSE(index, NN, dataset):
+    t10, t20, t1sp, t2sp, q1, q2 = dataset.__getitem__(index)
+    q1_p, q2_p = NN(t10, t20, t1sp, t2sp)
+    q1_p = q1_p.detach().numpy()
+    q2_p = q2_p.detach().numpy()
+
+    t10 = dataset._Tunscale(t10).numpy()
+    t20 = dataset._Tunscale(t20).numpy()
+    t1sp = dataset._Tunscale(t1sp).numpy()
+    t2sp = dataset._Tunscale(t2sp).numpy()
+    q1 = dataset._Qunscale(q1).numpy()
+    q2 = dataset._Qunscale(q2).numpy()
+    q1_p = dataset._Qunscale(q1_p)
+    q2_p = dataset._Qunscale(q2_p)
+
+    t1_sim_mpc, t2_sim_mpc = tclab_sim(t10, t20, q1, q2)
+    t1_sim_nn, t2_sim_nn = tclab_sim(t10, t20, q1_p, q2_p)
+
+    SSE_mpc = np.sum((t1_sim_mpc - t1sp) ** 2) + np.sum((t2_sim_mpc - t2sp) ** 2)
+    SSE_nn = np.sum((t1_sim_nn - t1sp) ** 2) + np.sum((t2_sim_nn - t2sp) ** 2)
+    return SSE_mpc, SSE_nn
+
+
+def sample_SSE(n_samples, NN, dataset):
+    # Sample n_samples from the dataset
+    indices = rng.choice(len(dataset), n_samples, replace=False)
+    SSE_mpc = []
+    SSE_nn = []
+    for i in indices:
+        sse_mpc, sse_nn = compare_SSE(i, NN, dataset)
+        SSE_mpc.append(sse_mpc)
+        SSE_nn.append(sse_nn)
+    return np.array(SSE_mpc), np.array(SSE_nn)
+
+
 class SimpleNN(AbstractNN):
     def __init__(self, embedding_dim=64):
         super(SimpleNN, self).__init__()
@@ -320,6 +416,7 @@ class SimpleNN(AbstractNN):
         q2 = self.hard_sigmoid(self.fc3b(xb))
         return q1, q2
 
+
 if __name__ == "__main__":
     ############################################################################
     # simulate data as needed
@@ -328,7 +425,7 @@ if __name__ == "__main__":
     simulate_TCLab_Data("data/test/", M_TESTING_EXAMPLES)
     simulate_TCLab_Data("data/transfer/", M_TRANSFER_EXAMPLES, k1=0.2, k2=0.5, tau12=60)
     simulate_TCLab_Data("data/transfer_test/", M_TRANSFER_TEST_EXAMPLES, k1=0.2, k2=0.5, tau12=60)
-    
+
     ############################################################################
     # training
     ############################################################################
@@ -377,12 +474,14 @@ if __name__ == "__main__":
             lr_scheduler.step(train_loss)
 
             learning_rates.append(lr_scheduler.get_last_lr()[0])
-            
-            logger.log_dict({
-                f"training/{model_version}/loss/train": train_loss,
-                f"training/{model_version}/loss/test": test_loss,
-                f"training/{model_version}/lr": lr_scheduler.get_last_lr()[0]
-            })
+
+            logger.log_dict(
+                {
+                    f"training/{model_version}/loss/train": train_loss,
+                    f"training/{model_version}/loss/test": test_loss,
+                    f"training/{model_version}/lr": lr_scheduler.get_last_lr()[0],
+                }
+            )
 
             print(
                 f"Epoch {epoch}/{epochs}, Train loss: {train_loss:.4e}, Test loss: {test_loss:.4e}, learning rate: {lr_scheduler.get_last_lr()[0]:.4e}",
@@ -390,7 +489,7 @@ if __name__ == "__main__":
             )
 
             torch.save(NN, f"models/TCLab_NN{model_version}.pt")
-            
+
     ############################################################################
     # transfer learning
     ############################################################################
@@ -399,44 +498,47 @@ if __name__ == "__main__":
     t10_, t20_, t1sp_, t2sp_, q1_, q2_ = tl_dataset.get_all()
     t10_t, t20_t, t1sp_t, t2sp_t, q1_t, q2_t = tl_test_dataset.get_all()
     loss_fn = lambda q1, q2, Q1, Q2: torch.mean((q1 - Q1) ** 2 + (q2 - Q2) ** 2)
-    
 
     # NN predictions on transferred dataset
     if not logger.check_key("transfer/No Maintenance/q1_p"):
         with torch.no_grad():
             q1_p_, q2_p_ = NN(t10_, t20_, t1sp_, t2sp_)
-            loss = (q1_p_ - q1_)**2 + (q2_p_ - q2_)**2
-            logger.log_dict({
-                "transfer/No Maintenance/train/q1_p" : q1_p_.detach().numpy(),
-                "transfer/No Maintenance/train/q1_p" : q2_p_.detach().numpy(),
-                "transfer/No Maintenance/train/loss" : loss.detach().numpy()
-            })
+            loss = (q1_p_ - q1_) ** 2 + (q2_p_ - q2_) ** 2
+            logger.log_dict(
+                {
+                    "transfer/No Maintenance/train/q1_p": q1_p_.detach().numpy(),
+                    "transfer/No Maintenance/train/q1_p": q2_p_.detach().numpy(),
+                    "transfer/No Maintenance/train/loss": loss.detach().numpy(),
+                }
+            )
             q1_p_, q2_p_ = NN(t10_t, t20_t, t1sp_t, t2sp_t)
-            loss = (q1_p_ - q1_t)**2 + (q2_p_ - q2_t)**2
-            logger.log_dict({
-                "transfer/No Maintenance/test/q1_p" : q1_p_.detach().numpy(),
-                "transfer/No Maintenance/test/q1_p" : q2_p_.detach().numpy(),
-                "transfer/No Maintenance/test/loss" : loss.detach().numpy()
-            })
-            
+            loss = (q1_p_ - q1_t) ** 2 + (q2_p_ - q2_t) ** 2
+            logger.log_dict(
+                {
+                    "transfer/No Maintenance/test/q1_p": q1_p_.detach().numpy(),
+                    "transfer/No Maintenance/test/q1_p": q2_p_.detach().numpy(),
+                    "transfer/No Maintenance/test/loss": loss.detach().numpy(),
+                }
+            )
+
     # online Adam - vanilla  (did not do well. LR may need to be changed, or just not good)
     # for t10, t20, t1sp, t2sp, q1, q2 in tl_dataloader:
     #     q1_p, q2_p = NN(t10, t20, t1sp, t2sp)
     #     loss = loss_fn(q1_p, q2_p, q1, q2)
     #     loss.backward()
     #     opt.step()
-        
+
     #     with torch.no_grad():
     #         q1_p_, q2_p_ = NN(t10_, t20_, t1sp_, t2sp_)
     #         total_loss = loss_fn(q1_p_, q2_p_, q1_, q2_)
-            
+
     #     logger.log_dict({
     #         "transfer/Online Adam/Vanilla/q1_p": q1_p.detach().numpy(),
     #         "transfer/Online Adam/Vanilla/q2_p": q2_p.detach().numpy(),
     #         "transfer/Online Adam/Vanilla/loss": np.array([loss.item()]),
     #         "transfer/Online Adam/Vanilla/global_loss": np.array([total_loss.item()]),
     #     })
-    
+
     # Mini-Batch Adam
     BATCH_SIZE = 50
     LR = 0.01
@@ -445,27 +547,20 @@ if __name__ == "__main__":
     dataloader = torch.utils.data.DataLoader(tl_dataset, batch_size=BATCH_SIZE, shuffle=True)
     opt = torch.optim.Adam(NN.parameters(), lr=LR)
     trail_key = logger.get_unique_key("transfer/Batched Adam/")
-    logger.log_attribute(trail_key+"batch size", BATCH_SIZE)
-    logger.log_attribute(trail_key+"lr", LR)
-    logger.log_attribute(trail_key+"epochs", EPOCHS)
+    logger.log_attribute(trail_key + "batch size", BATCH_SIZE)
+    logger.log_attribute(trail_key + "lr", LR)
+    logger.log_attribute(trail_key + "epochs", EPOCHS)
     for epoch in EPOCHS:
         for t10, t20, t1sp, t2sp, q1, q2 in dataloader:
             q1_p, q2_p = NN(t10, t20, t1sp, t2sp)
             loss = loss_fn(q1_p, q2_p, q1, q2)
             loss.backward()
             opt.step()
-            
+
         with torch.no_grad():
             q1_p_, q2_p_ = NN(t10_, t20_, t1sp_, t2sp_)
             train_loss = loss_fn(q1_p_, q2_p_, q1_, q2_)
             q1_p_t, q2_p_t = NN(t10_t, t20_t, t1sp_t, t2sp_t)
             test_loss = loss_fn(q1_p_t, q2_p_t, q1_t, q2_t)
-            
-        logger.log_dict({
-            trail_key+"train_loss" : train_loss.item(),
-            trail_key+"test_loss" : test_loss.item()
-        })
-            
-            
-    
-            
+
+        logger.log_dict({trail_key + "train_loss": train_loss.item(), trail_key + "test_loss": test_loss.item()})
