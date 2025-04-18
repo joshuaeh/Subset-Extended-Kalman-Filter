@@ -18,7 +18,7 @@ from sekf.modeling import AbstractNN
 # Config
 #########################################################
 rng = np.random.default_rng(42)
-logger = H5Logger(os.path.join("data", "TCLab.h5"), overwrite=False)
+logger = H5Logger("TCLab.h5", overwrite=False)
 
 M_TRAINING_EXAMPLES = 16
 N_TRAINING_EXAMPLES = 2**M_TRAINING_EXAMPLES
@@ -207,6 +207,160 @@ def simulate_TCLab_Data(data_prefix, m_examples, **kwargs):
     m.cleanup()
     return
 
+def TCLab_mpc_result(t10, t20, t1sp, t2sp, **kwargs):
+    m = GEKKO(name="tclab-mpc", remote=False)
+
+    m.time = np.linspace(0, tf, n)  # time points for simulation
+
+    # Parameters from Estimation
+    K1 = m.FV(value=kwargs.get("k1", 0.607))
+    K2 = m.FV(value=kwargs.get("k2", 0.293))
+    K3 = m.FV(value=kwargs.get("k3", 0.24))
+    tau12 = m.FV(value=kwargs.get("tau12", 192))
+    tau3 = m.FV(value=kwargs.get("tau3", 15))
+
+    # don't update parameters with optimizer
+    K1.STATUS = 0
+    K2.STATUS = 0
+    K3.STATUS = 0
+    tau12.STATUS = 0
+    tau3.STATUS = 0
+
+    # Manipulated variables
+    Q1 = m.MV(value=0, name="q1")
+    Q1.STATUS = 1  # manipulated by optimizer
+    # Q1.DMAX = 20.0
+    # Q1.DCOST = 0.1
+    Q1.UPPER = 100.0
+    Q1.LOWER = 0.0
+
+    Q2 = m.MV(value=0, name="q2")
+    Q2.STATUS = 1  # manipulated by optimizer
+    # Q2.DMAX = 30.0
+    # Q2.DCOST = 0.1
+    Q2.UPPER = 100.0
+    Q2.LOWER = 0.0
+
+    # State variables
+    TH1 = m.SV(value=23.0)
+    TH2 = m.SV(value=23.0)
+
+    # Controlled variables (not implemented as CV)
+    # TC1 = m.CV(value=T1m[0],name='tc1')
+    # TC1.STATUS = 1     # drive to set point
+    # TC1.FSTATUS = 0    # receive measurement
+    # TC1.TAU = 40       # response speed (time constant)
+    # TC1.TR_INIT = 1    # reference trajectory
+    # TC1.TR_OPEN = 0
+    # TC1.SP = T1sp
+
+    # TC2 = m.CV(value=T2m[0],name='tc2')
+    # TC2.STATUS = 1     # drive to set point
+    # TC2.FSTATUS = 0   # receive measurement
+    # TC2.TAU = 0        # response speed (time constant)
+    # TC2.TR_INIT = 0    # dead-band
+    # TC2.TR_OPEN = 1
+    # TC2.SP = T2sp
+
+    TC1 = m.Var(value=23.0, name="tc1")  # use Var to initialize with T1m[0]
+    TC2 = m.Var(value=23.0, name="tc2")  # use Var to initialize with T2m[0]
+    TC1sp = m.Param(value=np.ones(n) * 23.0)
+    TC2sp = m.Param(value=np.ones(n) * 23.0)
+    Ta = m.Param(value=23.0)  # degC
+
+    # Heat transfer between two heaters
+    DT = m.Intermediate(TH2 - TH1)
+
+    # Empirical correlations
+    m.Equation(tau12 * TH1.dt() + (TH1 - Ta) == K1 * Q1 + K3 * DT)
+    m.Equation(tau12 * TH2.dt() + (TH2 - Ta) == K2 * Q2 - K3 * DT)
+    m.Equation(tau3 * TC1.dt() + TC1 == TH1)
+    m.Equation(tau3 * TC2.dt() + TC2 == TH2)
+
+    m.Obj(
+        (TC1 - TC1sp) ** 2  # minimize error from setpoint
+        + (TC2 - TC2sp) ** 2  # minimize error from setpoint
+    )
+
+    # Global Options
+    m.options.IMODE = 6  # MPC
+    
+    # different inputs
+    # State variables
+    TH1.value = t10
+    TH2.value = t20
+
+    TC1.value = t10
+    TC2.value = t20
+    TC1sp.value = t1sp
+    TC2sp.value = t2sp
+
+    try:
+        sol = m.solve(disp=False)
+        return np.array(Q1.value), np.array(Q2.value), np.array(TC1.value), np.array(TC2.value)
+    except Exception as e:
+        print(e)
+        return t1sp * np.nan, t1sp * np.nan, t1sp * np.nan, t1sp * np.nan
+
+def tclab_sim(t10, t20, q1, q2, **kwargs):
+    ### Simulate
+    # MPC Prediction
+    tf_min = 30  # time in minutes
+    tf = tf_min * 60  # (sec)
+    n = tf_min * 2 + 1  # one point every 5 seconds
+
+    #########################################################
+    # Initialize Model
+    #########################################################
+    m = GEKKO(remote=False)
+
+    # with a local server
+    # m = GEKKO(name='tclab-mpc',server='http://127.0.0.1',remote=True)
+
+    m.time = np.linspace(0, tf, n)  # time points for simulation
+
+    # Parameters from Estimation
+    K1 = m.FV(value=kwargs.get("k1", 0.607))
+    K2 = m.FV(value=kwargs.get("k2", 0.293))
+    K3 = m.FV(value=kwargs.get("k3", 0.24))
+    tau12 = m.FV(value=kwargs.get("tau12", 192))
+    tau3 = m.FV(value=kwargs.get("tau3", 15))
+
+    # don't update parameters with optimizer
+    # K1.STATUS = 0
+    # K2.STATUS = 0
+    # K3.STATUS = 0
+    # tau12.STATUS = 0
+    # tau3.STATUS = 0
+
+    # heater setting
+    Q1 = m.Param(name="Q1")
+    Q1.value = q1
+    Q2 = m.Param(name="Q2")
+    Q2.value = q2
+
+    # State variables
+    TH1 = m.Var(value=t10, name="th1")  # use Var to initialize with T1m[0]
+    TH2 = m.Var(value=t20, name="th2")  # use Var to initialize with T2m[0])
+    TC1 = m.Var(value=t10, name="tc1")  # use Var to initialize with T1m[0]
+    TC2 = m.Var(value=t20, name="tc2")  # use Var to initialize with T2m[0]
+    Ta = m.Param(value=23.0)  # degC
+
+    # Heat transfer between two heaters
+    DT = m.Intermediate(TH2 - TH1)
+
+    # Empirical correlations
+    m.Equation(tau12 * TH1.dt() + (TH1 - Ta) == K1 * Q1 + K3 * DT)
+    m.Equation(tau12 * TH2.dt() + (TH2 - Ta) == K2 * Q2 - K3 * DT)
+    m.Equation(tau3 * TC1.dt() + TC1 == TH1)
+    m.Equation(tau3 * TC2.dt() + TC2 == TH2)
+    m.options.IMODE = 4  # simulataneous simulation
+    m.solve(disp=False)
+
+    m.cleanup()
+
+    return np.array(TC1.value), np.array(TC2.value)
+
 
 def tclab_sim(t10, t20, q1, q2, **kwargs):
     ### Simulate
@@ -346,6 +500,15 @@ class TCLabDataset(torch.utils.data.Dataset):
         Q2i = self.Q2[idx]
 
         return T10i, T20i, T1spi, T2spi, Q1i, Q2i
+    
+    def __getitem__np(self, idx):
+        T10i, T20i, T1spi, T2spi, Q1i, Q2i = self.__getitem__(idx)
+        t10i = self._Tunscale(T10i).numpy()
+        t20i = self._Tunscale(T20i).numpy()
+        t1spi = self._Tunscale(T1spi).numpy()
+        t2spi = self._Tunscale(T2spi).numpy()
+        q1i = self._Qunscale(Q1i).numpy()
+        q2i = self._Qunscale(Q2i).numpy()
 
     def get_all(self):
         return (
@@ -356,7 +519,39 @@ class TCLabDataset(torch.utils.data.Dataset):
             self.Q1.reshape(-1, 61),
             self.Q2.reshape(-1, 61),
         )
+def compare_SSE(index, NN, dataset):
+    t10, t20, t1sp, t2sp, q1, q2 = dataset.__getitem__(index)
+    q1_p, q2_p = NN(t10, t20, t1sp, t2sp)
+    q1_p = q1_p.detach().numpy()
+    q2_p = q2_p.detach().numpy()
 
+    t10 = dataset._Tunscale(t10).numpy()
+    t20 = dataset._Tunscale(t20).numpy()
+    t1sp = dataset._Tunscale(t1sp).numpy()
+    t2sp = dataset._Tunscale(t2sp).numpy()
+    q1 = dataset._Qunscale(q1).numpy()
+    q2 = dataset._Qunscale(q2).numpy()
+    q1_p = dataset._Qunscale(q1_p)
+    q2_p = dataset._Qunscale(q2_p)
+
+    t1_sim_mpc, t2_sim_mpc = tclab_sim(t10, t20, q1, q2)
+    t1_sim_nn, t2_sim_nn = tclab_sim(t10, t20, q1_p, q2_p)
+
+    SSE_mpc = np.sum((t1_sim_mpc - t1sp) ** 2) + np.sum((t2_sim_mpc - t2sp) ** 2)
+    SSE_nn = np.sum((t1_sim_nn - t1sp) ** 2) + np.sum((t2_sim_nn - t2sp) ** 2)
+    return SSE_mpc, SSE_nn
+
+
+def sample_SSE(n_samples, NN, dataset):
+    # Sample n_samples from the dataset
+    indices = rng.choice(len(dataset), n_samples, replace=False)
+    SSE_mpc = []
+    SSE_nn = []
+    for i in indices:
+        sse_mpc, sse_nn = compare_SSE(i, NN, dataset)
+        SSE_mpc.append(sse_mpc)
+        SSE_nn.append(sse_nn)
+    return np.array(SSE_mpc), np.array(SSE_nn)
 
 def compare_SSE(index, NN, dataset):
     t10, t20, t1sp, t2sp, q1, q2 = dataset.__getitem__(index)
@@ -425,7 +620,9 @@ if __name__ == "__main__":
     simulate_TCLab_Data("data/test/", M_TESTING_EXAMPLES)
     simulate_TCLab_Data("data/transfer/", M_TRANSFER_EXAMPLES, k1=0.2, k2=0.5, tau12=60)
     simulate_TCLab_Data("data/transfer_test/", M_TRANSFER_TEST_EXAMPLES, k1=0.2, k2=0.5, tau12=60)
-
+    simulate_TCLab_Data("data/transfer-tau12(60)/", M_TRANSFER_EXAMPLES, tau12=60)
+    simulate_TCLab_Data("data/transfer-tau12(60)_test/", M_TRANSFER_TEST_EXAMPLES, tau12=60)
+    
     ############################################################################
     # training
     ############################################################################
@@ -434,8 +631,8 @@ if __name__ == "__main__":
     train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=500, shuffle=True)
     model_version = "v0"
 
-    if os.path.exists(f"models/TCLab_NN{model_version}.pt"):
-        NN = torch.load(f"models/TCLab_NN{model_version}.pt", weights_only=False)
+    if os.path.exists(f"TCLab_NN{model_version}.pt"):
+        NN = torch.load(f"TCLab_NN{model_version}.pt", weights_only=False)
     else:
         NN = SimpleNN()
         NN._init_params()
@@ -488,8 +685,8 @@ if __name__ == "__main__":
                 end="\r",
             )
 
-            torch.save(NN, f"models/TCLab_NN{model_version}.pt")
-
+            torch.save(NN, f"TCLab_NN{model_version}.pt")
+            
     ############################################################################
     # transfer learning
     ############################################################################
@@ -540,27 +737,36 @@ if __name__ == "__main__":
     #     })
 
     # Mini-Batch Adam
-    BATCH_SIZE = 50
-    LR = 0.01
-    EPOCHS = 200
-    NN = torch.load(f"models/TCLab_NN{model_version}.pt", weights_only=False)
-    dataloader = torch.utils.data.DataLoader(tl_dataset, batch_size=BATCH_SIZE, shuffle=True)
-    opt = torch.optim.Adam(NN.parameters(), lr=LR)
-    trail_key = logger.get_unique_key("transfer/Batched Adam/")
-    logger.log_attribute(trail_key + "batch size", BATCH_SIZE)
-    logger.log_attribute(trail_key + "lr", LR)
-    logger.log_attribute(trail_key + "epochs", EPOCHS)
-    for epoch in EPOCHS:
-        for t10, t20, t1sp, t2sp, q1, q2 in dataloader:
-            q1_p, q2_p = NN(t10, t20, t1sp, t2sp)
-            loss = loss_fn(q1_p, q2_p, q1, q2)
-            loss.backward()
-            opt.step()
-
-        with torch.no_grad():
-            q1_p_, q2_p_ = NN(t10_, t20_, t1sp_, t2sp_)
-            train_loss = loss_fn(q1_p_, q2_p_, q1_, q2_)
-            q1_p_t, q2_p_t = NN(t10_t, t20_t, t1sp_t, t2sp_t)
-            test_loss = loss_fn(q1_p_t, q2_p_t, q1_t, q2_t)
-
-        logger.log_dict({trail_key + "train_loss": train_loss.item(), trail_key + "test_loss": test_loss.item()})
+    for LR in [0.003, 0.001, 0.0003, 0.0001]:
+        for BATCH_SIZE in [5, 25, 50, 100, 500]:
+            BATCH_SIZE = 50
+            # LR = 0.01
+            EPOCHS = 200
+            NN = torch.load(f"models/TCLab_NN{model_version}.pt", weights_only=False)
+            dataloader = torch.utils.data.DataLoader(tl_dataset, batch_size=BATCH_SIZE, shuffle=True)
+            opt = torch.optim.Adam(NN.parameters(), lr=LR)
+            lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(opt, factor=0.4, patience=20)
+            trail_key = logger.get_unique_key("transfer/Batched Adam/")
+            logger.log_attribute(trail_key+"batch size", BATCH_SIZE)
+            logger.log_attribute(trail_key+"lr", LR)
+            logger.log_attribute(trail_key+"epochs", EPOCHS)
+            for epoch in range(EPOCHS):
+                for t10, t20, t1sp, t2sp, q1, q2 in dataloader:
+                    q1_p, q2_p = NN(t10, t20, t1sp, t2sp)
+                    loss = loss_fn(q1_p, q2_p, q1, q2)
+                    loss.backward()
+                    opt.step()
+                    
+                with torch.no_grad():
+                    q1_p_, q2_p_ = NN(t10_, t20_, t1sp_, t2sp_)
+                    train_loss = loss_fn(q1_p_, q2_p_, q1_, q2_)
+                    q1_p_t, q2_p_t = NN(t10_t, t20_t, t1sp_t, t2sp_t)
+                    test_loss = loss_fn(q1_p_t, q2_p_t, q1_t, q2_t)
+                    
+                lr_scheduler.step(train_loss)
+                    
+                logger.log_dict({
+                    trail_key+"train_loss" : train_loss.item(),
+                    trail_key+"test_loss" : test_loss.item()
+                })
+            
