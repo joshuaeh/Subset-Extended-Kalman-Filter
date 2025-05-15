@@ -1,3 +1,6 @@
+# Miscellaneous
+*.DS_Store
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -132,3 +135,9 @@ dmypy.json
 
 # Cython debug symbols
 cython_debug/
+
+# Manim intermediate files
+figures/manim/*
+
+# Scratch notebooks
+notebooks/scratch/*
