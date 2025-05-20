@@ -196,7 +196,7 @@ class SEKF(basic_optimizer):
                 "e": e,
                 "J": J,
                 "A": A,
-                "K": K,
+                "K": self.K,
                 "W": self.W,
                 "P": self.P,
             }
