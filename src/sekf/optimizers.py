@@ -171,7 +171,9 @@ class SEKF(basic_optimizer):
         if mask is None:
             mask = torch.ones(J.shape[1], dtype=torch.bool)
         else:
-            assert mask.shape == (J.shape[1],), f"Mask must have the same number of elements as the number of parameters, received {mask.shape[0]} expected {J.shape[1]}"
+            assert mask.shape == (J.shape[1],), (
+                f"Mask must have the same number of elements as the number of parameters, received {mask.shape[0]} expected {J.shape[1]}"
+            )
         e = e.reshape(-1, 1)
         
         A0 = torch.eye(J.shape[0]) / self.learning_rate + J[:,mask] @ self.P[mask][:,mask] @ J[:,mask].T
