@@ -172,12 +172,12 @@ class SEKF(basic_optimizer):
             verbose: (bool) whether to return additional information
         Returns:
             None or dict: additional information if verbose=True
-            
+
         Other Notes:
             P (N_param, N_param) is the error covariance matrix
             A (N_out, N_out) is the scaling matrix
             K (N_param, N_out) is the Kalman gain
-            
+
             @torch.no_grad() is used to prevent the computation graph from being stored
         """
         # parse inputs and initialize matricies
