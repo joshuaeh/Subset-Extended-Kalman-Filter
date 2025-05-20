@@ -183,11 +183,8 @@ class SEKF(basic_optimizer):
         #     torch.eye(J.shape[0]) / self.learning_rate  # JPJ^T is the covariance of the innovation
         #     + J[:,mask] @ self.P[mask][:,mask] @ J[:,mask].T
         # )
-        K = self.P[mask][:,mask] @ J[:,mask].T @ A
-        dW = (K @ e).reshape(-1)
-        dP = -K @ J[:,mask] @ self.P[mask][:,mask] + self.Q[mask][:,mask]
-        self.W[mask] += dW
-        self.P[mask][:,mask] += dP
+        self.K = self.P[mask][:, mask] @ J[:, mask].T @ A
+        self.dW = (self.K @ e).reshape(-1)
         self._set_flat_params(self.W)
         if verbose:
             return {
