@@ -175,8 +175,8 @@ class SEKF(basic_optimizer):
                 f"Mask must have the same number of elements as the number of parameters, received {mask.shape[0]} expected {J.shape[1]}"
             )
         e = e.reshape(-1, 1)
-        
-        A0 = torch.eye(J.shape[0]) / self.learning_rate + J[:,mask] @ self.P[mask][:,mask] @ J[:,mask].T
+
+        A0 = torch.eye(J.shape[0]) / self.learning_rate + J[:, mask] @ self.P[mask][:, mask] @ J[:, mask].T
         A = torch.linalg.solve(A0, torch.eye(J.shape[0]))
         # A = torch.linalg.inv(
         #     # learning rate injects uniform addition to main diagonal
