@@ -215,6 +215,25 @@ class SEKF(basic_optimizer):
             }
         else:
             return
+
+    def easy_step(self, model, x_true, y_true, loss_fn, mask_fn=None, mask=None, verbose=False):
+        """
+        NOTE: x_true MUST be a tuple so that it can be unpacked when passed to the model, and passed as a tuple when calculating the jacobian.
+        TODO: should this be an *arg instead?
+        """
+        y_pred = model(*x_true)
+        e = y_true - y_pred
+        loss = loss_fn(y_pred, y_true)
+        loss.backward()
+        grad_loss = self._get_flat_grads()
+        J = get_jacobian(model, x_true)
+        if mask is None:
+            if mask_fn is None:
+                mask = mask_fn(grad_loss, **self.mask_fn_kwargs)
+            else:
+                mask = mask_fn(grad_loss)
+        return y_pred, self.step(e, J, mask=mask, verbose=verbose)
+
     def save_params(self, path=None):
         if path is None:
             path = self.save_path
