@@ -135,6 +135,10 @@ class SEKF(basic_optimizer):
     ):
         if not 0.0 <= lr:
             raise ValueError(f"Invalid learning rate: {lr}")
+        if mask_fn_kwargs is None:
+            self.mask_fn_kwargs = {}
+        else:
+            self.mask_fn_kwargs = mask_fn_kwargs
         self.learning_rate = lr
         # defaults = dict(lr=lr)
         defaults = dict()
