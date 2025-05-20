@@ -139,7 +139,16 @@ class SEKF(basic_optimizer):
         # defaults = dict(lr=lr)
         defaults = dict()
         super(SEKF, self).__init__(params, defaults)
-        self._init_SEKF(p0, q)
+        self.save_path = save_path
+        if self.save_path is not None:
+            if os.path.exists(self.save_path):
+                logger.debug(f"Loading SEKF parameters from {self.save_path}")
+                self.load_params(self.save_path)
+            else:
+                logger.debug(f"Saving SEKF parameters to {self.save_path}")
+                self.save_params(self.save_path)
+        else:
+            self._init_SEKF(p0, q)
         return
 
     def _init_SEKF(self, p0, q):
@@ -202,3 +211,18 @@ class SEKF(basic_optimizer):
             }
         else:
             return
+    def save_params(self, path=None):
+        if path is None:
+            path = self.save_path
+        np.savez(path, dict(P=self.P.numpy(), Q=self.Q.numpy()))
+        return
+
+    def load_params(self, path=None):
+        if path is None:
+            assert self.save_path is not None, "Either provide a path when calling `load_params` or set `save_path` when initializing the optimizer"
+            path = self.save_path
+        data = np.load(path)
+        self.P = torch.from_numpy(data["P"])
+        self.Q = torch.from_numpy(data["Q"])
+        self.W = self._get_flat_params()
+        return
