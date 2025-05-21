@@ -1,6 +1,6 @@
 [project]
 name = "sekf"
-version = "0.0.2"
+version = "0.0.3"
 # dynamic = ["version"]
 description = "The Subset Extended Kalman Filter"
 keywords = []
