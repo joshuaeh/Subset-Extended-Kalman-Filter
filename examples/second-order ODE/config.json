@@ -9,7 +9,7 @@
     "TRAINING_DATA_SAVE_PATH": "training_data.npz",
     "TRAINING_PLOT_PATH": "training_plot.png",
     "UPDATING_FINAL_EPSILON": 0.02,
-    "UPDATING_N_MEASUREMENTS": 100000,
+    "UPDATING_N_MEASUREMENTS": 10000,
     "UPDATING_MODEL_SAVE_PATH": "modelv1.pth",
     "UPDATING_PLANT_DATA_SAVE_PATH": "updating_plant_data.csv",
     "UPDATING_MODEL_DATA_SAVE_PATH": "updating_model_data.csv",
