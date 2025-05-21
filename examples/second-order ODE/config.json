@@ -1,0 +1,21 @@
+{
+    "RANDOM_SEED": 42,
+    "NOISE_STD": 0.05,
+    "TRAINING_EPSILON": 0.2,
+    "TRAINING_SAMPLES": 1000,
+    "TESTING_SAMPLES": 200,
+    "TRAINING_EPOCHS": 1000,
+    "TRAINING_MODEL_SAVE_PATH": "modelv0.pth",
+    "TRAINING_DATA_SAVE_PATH": "training_data.npz",
+    "TRAINING_PLOT_PATH": "training_plot.png",
+    "UPDATING_FINAL_EPSILON": 0.02,
+    "UPDATING_N_MEASUREMENTS": 100000,
+    "UPDATING_MODEL_SAVE_PATH": "modelv1.pth",
+    "UPDATING_PLANT_DATA_SAVE_PATH": "updating_plant_data.csv",
+    "UPDATING_MODEL_DATA_SAVE_PATH": "updating_model_data.npz",
+    "UPDATING_OPTIMIZER_SAVE_PATH": "updating_optimizer.npz",
+    "UPDATING_PARAM_SELECTION": {
+        "method": "proportion",
+        "param": 0.9
+    }
+}
