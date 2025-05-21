@@ -25,7 +25,9 @@ dependencies = [
     "tqdm>=4.67.1"
 ]
 [project.optional-dependencies]
-dev = []
+dev = [
+    "pytest"
+]
 
 [tool.uv.sources]
 jtoolbox = { git = "https://github.com/joshuaeh/jtoolbox/" }
