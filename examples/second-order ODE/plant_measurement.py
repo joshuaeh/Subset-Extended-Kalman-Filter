@@ -11,17 +11,17 @@ import torch
 
 from secondOrderODE import analytical_solution, NN, rng, random_walk_step
 
-def main():
-    # read config from JSON file
-    with open("config.json") as f:
-        config = json.load(f)
-    RANDOM_SEED = config["RANDOM_SEED"]
-    NOISE_STD = config["NOISE_STD"]
-    TRAIN_EPSILON = config["TRAINING_EPSILON"]
-    FINAL_EPSILON = config["UPDATING_FINAL_EPSILON"]
-    UPDATING_N_MEASUREMENTS = config["UPDATING_N_MEASUREMENTS"]
-    UPDATING_PLANT_DATA_SAVE_PATH = config["UPDATING_PLANT_DATA_SAVE_PATH"]
+# read config from JSON file
+with open("config.json") as f:
+    config = json.load(f)
+RANDOM_SEED = config["RANDOM_SEED"]
+NOISE_STD = config["NOISE_STD"]
+TRAIN_EPSILON = config["TRAINING_EPSILON"]
+FINAL_EPSILON = config["UPDATING_FINAL_EPSILON"]
+UPDATING_N_MEASUREMENTS = config["UPDATING_N_MEASUREMENTS"]
+UPDATING_PLANT_DATA_SAVE_PATH = config["UPDATING_PLANT_DATA_SAVE_PATH"]
 
+def main():
     # init csv if not exist
     if not os.path.exists(UPDATING_PLANT_DATA_SAVE_PATH):
         with open(UPDATING_PLANT_DATA_SAVE_PATH, "w") as f:
