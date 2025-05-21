@@ -12,7 +12,7 @@
     "UPDATING_N_MEASUREMENTS": 100000,
     "UPDATING_MODEL_SAVE_PATH": "modelv1.pth",
     "UPDATING_PLANT_DATA_SAVE_PATH": "updating_plant_data.csv",
-    "UPDATING_MODEL_DATA_SAVE_PATH": "updating_model_data.npz",
+    "UPDATING_MODEL_DATA_SAVE_PATH": "updating_model_data.csv",
     "UPDATING_OPTIMIZER_SAVE_PATH": "updating_optimizer.npz",
     "UPDATING_PARAM_SELECTION": {
         "method": "proportion",
