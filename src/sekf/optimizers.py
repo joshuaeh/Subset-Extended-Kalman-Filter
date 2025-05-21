@@ -73,12 +73,12 @@ class maskedAdam(torch.optim.Adam, basic_optimizer):
         if grad_thresh is not None:
             pre_step_grads = self._get_flat_grads()
             mask = pre_step_grads.abs() > grad_thresh
-        
+
         elif grad_quantile is not None:
             pre_step_grads = self._get_flat_grads()
             quantile_value = pre_step_grads.abs().quantile(grad_quantile)
             mask = pre_step_grads.abs() > quantile_value
-            
+
         elif mask is None:
             super(maskedAdam, self).step(closure=closure)
             return
@@ -91,7 +91,8 @@ class maskedAdam(torch.optim.Adam, basic_optimizer):
         post_step_params[~mask] = pre_step_params[~mask]
         self._set_flat_params(post_step_params)
         return (mask).sum().item()
-    
+
+
 class maskedSGD(torch.optim.SGD, basic_optimizer):
     def __init__(self, params, lr=1e-3, momentum=0, dampening=0, weight_decay=0, nesterov=False, mask=None):
         super(maskedSGD, self).__init__(params, lr, momentum, dampening, weight_decay, nesterov)
