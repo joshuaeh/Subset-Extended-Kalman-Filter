@@ -141,7 +141,9 @@ figures/manim/*
 
 # Scratch notebooks
 notebooks/scratch/*
-examples/**.csv
-examples/**.png
-examples/**.npz
-examples/**.pth
+
+# examples data
+examples/*/*.csv
+examples/*/*.png
+examples/*/*.npz
+examples/*/*.pth
