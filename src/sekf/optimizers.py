@@ -249,7 +249,7 @@ class SEKF(basic_optimizer):
         J = get_jacobian(model, x_true)
         if mask is None:
             if mask_fn is None:
-                mask = mask_fn(grad_loss, **self.mask_fn_kwargs)
+                mask = self.mask_fn(grad_loss)
             else:
                 mask = mask_fn(grad_loss)
         return y_pred, self.step(e, J, mask=mask, verbose=verbose)
