@@ -152,19 +152,19 @@ class SEKF(basic_optimizer):
         # defaults = dict(lr=lr)
         defaults = dict()
         super(SEKF, self).__init__(params, defaults)
+        self._init_SEKF(p0, q)
         self.save_path = save_path
         if self.save_path is not None:
             if os.path.exists(self.save_path):
                 logger.debug(f"Loading SEKF parameters from {self.save_path}")
                 self.load_params(self.save_path)
             else:
-                logger.debug(f"Saving SEKF parameters to {self.save_path}")
+                logger.debug(f"{self.save_path} does not exist, initializing SEKF parameters")
                 self.save_params(self.save_path)
-        else:
-            self._init_SEKF(p0, q)
         return
 
     def _init_SEKF(self, p0, q):
+        """Initialize the SEKF P, Q matrices."""
         self.n_param_elements = sum(sum(p.numel() for p in param_group["params"]) for param_group in self.param_groups)
         self.P = torch.eye(self.n_param_elements) * p0
         self.Q = torch.eye(self.n_param_elements) * q
