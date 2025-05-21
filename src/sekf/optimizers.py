@@ -1,5 +1,12 @@
+import logging
+import os
+
+import numpy as np
 import torch
 
+from .modeling import mask_fn, get_jacobian
+
+logger = logging.getLogger(__name__)
 
 class basic_optimizer(torch.optim.Optimizer):
     """Base class for my optimizers that includes parameter access and setting utilities"""
