@@ -141,13 +141,13 @@ class SEKF(basic_optimizer):
         lr: float = 1e-3,  # initial learning rate
         q: float = 1e-1,  # process noise
         p0: float = 100,  # initial error covariance
+        mask_fn_thresh=None,
+        mask_fn_quantile_thresh=None,
+        save_path=None
     ):
         if not 0.0 <= lr:
             raise ValueError(f"Invalid learning rate: {lr}")
-        if mask_fn_kwargs is None:
-            self.mask_fn_kwargs = {}
-        else:
-            self.mask_fn_kwargs = mask_fn_kwargs
+        self.mask_fn = lambda x: mask_fn(x, thresh=mask_fn_thresh, quantile_thresh=mask_fn_quantile_thresh)
         self.learning_rate = lr
         # defaults = dict(lr=lr)
         defaults = dict()
