@@ -211,7 +211,9 @@ class SEKF(basic_optimizer):
         self.W[mask] = self.W[mask] + self.dW
         # self.P[mask][:,mask] = self.P[mask][:,mask] + self.dP
         # self.P[mask][:,mask] = (torch.eye(self.n_param_elements)[mask][:,mask] - self.K @ J[:,mask]) @ self.P[mask][:,mask] + self.dP
-        self.P = (torch.eye(self.n_param_elements) - self.K @ J[:, mask]) @ self.P + self.Q
+        subset_P = (torch.eye(sum(mask)) - self.K @ J[:, mask]) @ self.P[mask][:, mask] + self.Q[mask][:, mask]
+        mask_2d = mask.unsqueeze(0) & mask.unsqueeze(1)
+        self.P.index_put_(torch.where(mask_2d), subset_P.flatten())
         self._set_flat_params(self.W)
         if verbose:
             return {
