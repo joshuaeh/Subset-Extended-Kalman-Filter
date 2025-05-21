@@ -124,7 +124,7 @@ class SEKF(basic_optimizer):
     """Subset Extended Kalman Filter optimizer.
     ...
     IMPORTANT NOTE: This optimizer requires the gradient to be computed wrt the output of the model, NOT the loss.
-    
+
     Generally lr and q are adjusted while leaving p0 at 100 for sigmoid activations and 1000 for linear activations.
 
     Args:
@@ -282,5 +282,4 @@ class SEKF(basic_optimizer):
         data = np.load(path)
         self.P = torch.from_numpy(data["P"])
         self.Q = torch.from_numpy(data["Q"])
-        self.W = self._get_flat_params()
         return
