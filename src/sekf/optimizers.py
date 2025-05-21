@@ -255,12 +255,25 @@ class SEKF(basic_optimizer):
         return y_pred, self.step(e, J, mask=mask, verbose=verbose)
 
     def save_params(self, path=None):
+        """Saves the SEKF P and Q matrices to a npz file.
+        ARGS:
+            path (str): path to save the parameters to. If None, uses the save_path attribute
+        RETURNS:
+            None
+        """
         if path is None:
+            assert self.save_path is not None, "Either provide a path when calling `save_params` or set `save_path` when initializing the optimizer"
             path = self.save_path
-        np.savez(path, dict(P=self.P.numpy(), Q=self.Q.numpy()))
+        np.savez(path, P=self.P.numpy(), Q=self.Q.numpy())
         return
 
     def load_params(self, path=None):
+        """Loads the SEKF P and Q matrices from a npz file.
+        ARGS:
+            path (str): path to load the parameters from. If None, uses the save_path attribute
+        RETURNS:
+            None
+        """
         if path is None:
             assert self.save_path is not None, "Either provide a path when calling `load_params` or set `save_path` when initializing the optimizer"
             path = self.save_path
