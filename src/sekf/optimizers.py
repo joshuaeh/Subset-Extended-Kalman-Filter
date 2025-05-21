@@ -43,7 +43,7 @@ class basic_optimizer(torch.optim.Optimizer):
     #         partial_grads[i] = self._get_flat_grads()
     #     return partial_grads
 
-    # # TODO: refactor to include vectorized, funcitonal operations for multi-dimensional outputs
+    # # TODO: refactor to include vectorized, functional operations for multi-dimensional outputs
 
     # @torch.no_grad()
     def _set_flat_params(self, flat_params):
