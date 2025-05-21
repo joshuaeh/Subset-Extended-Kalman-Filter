@@ -6,6 +6,7 @@ import json
 import train_model
 import plant_measurement
 import update_model
+from secondOrderODE import plot_results
 
 if __name__ == "__main__":
     with open("config.json", "r") as f:
@@ -15,3 +16,4 @@ if __name__ == "__main__":
         print(f"Measurement {i+1:0>6,}/{config['UPDATING_N_MEASUREMENTS']:0>7,}", end="\r")
         plant_measurement.main()
         update_model.main()
+    plot_results("results.png")
