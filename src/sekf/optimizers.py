@@ -227,8 +227,19 @@ class SEKF(basic_optimizer):
 
     def easy_step(self, model, x_true, y_true, loss_fn, mask_fn=None, mask=None, verbose=False):
         """
-        NOTE: x_true MUST be a tuple so that it can be unpacked when passed to the model, and passed as a tuple when calculating the jacobian.
-        TODO: should this be an *arg instead?
+        Utility method to perform prediction, compute loss, calculate jacobian and mask, and SEKF step.
+        ARGS:
+            model (torch.nn.Module): model to optimize
+            x_true (tuple(torch.Tensor)): input to the model
+                NOTE: x_true must be a tuple of tensors, even if there is only one input to handle multi-input settings. Could change this in the future.
+            y_true (torch.Tensor): target output 
+            loss_fn (callable): loss function to compute the loss
+            mask_fn (callable): function to compute the mask from the gradients. If not declated, or declared in initialization, assumes no mask
+            mask (torch.Tensor): mask to use for the SEKF step. If not provided, will be computed from the gradients
+            verbose (bool): whether to return additional information
+        RETURNS:
+            y_pred (torch.Tensor): predicted output
+            step_info (dict, None): additional information if verbose=True, otherwise None
         """
         y_pred = model(*x_true)
         e = y_true - y_pred
