@@ -20,30 +20,30 @@ class basic_optimizer(torch.optim.Optimizer):
         return torch.cat(
             [torch.cat([p.grad.flatten() for p in param_group["params"]]) for param_group in self.param_groups]
         )
-        
-    def _multidimensional_backprop(self, backpropagated_tensor):
-        """Backpropagate through a multidimensional output tensor.
-        Args:
-            out: multidimensional output tensor
-            retain_graph: whether to retain the computation graph
-        Returns:
-            torch.Tensor: (n_out, p_param) tensor of gradients
-        """
-        # TODO refactor for batched operations
-        n_out = backpropagated_tensor.numel()
-        params = self._get_flat_params()
-        n_params = params.numel()
-        partial_grads = torch.zeros(n_out, n_params)
-        backpropagated_tensor = backpropagated_tensor.flatten()
-        for i in range(n_out):
-            self.zero_grad()
-            partial_mask = torch.zeros(n_out)
-            partial_mask[i] = 1
-            torch.autograd.backward(backpropagated_tensor, grad_tensors=partial_mask, retain_graph=True, create_graph=True)
-            partial_grads[i] = self._get_flat_grads()
-        return partial_grads
-    
-    # TODO: refactor to include vectorized, funcitonal operations for multi-dimensional outputs
+
+    # def _multidimensional_backprop(self, backpropagated_tensor):
+    #     """Backpropagate through a multidimensional output tensor.
+    #     Args:
+    #         out: multidimensional output tensor
+    #         retain_graph: whether to retain the computation graph
+    #     Returns:
+    #         torch.Tensor: (n_out, p_param) tensor of gradients
+    #     """
+    #     # TODO refactor for batched operations
+    #     n_out = backpropagated_tensor.numel()
+    #     params = self._get_flat_params()
+    #     n_params = params.numel()
+    #     partial_grads = torch.zeros(n_out, n_params)
+    #     backpropagated_tensor = backpropagated_tensor.flatten()
+    #     for i in range(n_out):
+    #         self.zero_grad()
+    #         partial_mask = torch.zeros(n_out)
+    #         partial_mask[i] = 1
+    #         torch.autograd.backward(backpropagated_tensor, grad_tensors=partial_mask, retain_graph=True, create_graph=True)
+    #         partial_grads[i] = self._get_flat_grads()
+    #     return partial_grads
+
+    # # TODO: refactor to include vectorized, funcitonal operations for multi-dimensional outputs
 
     # @torch.no_grad()
     def _set_flat_params(self, flat_params):
