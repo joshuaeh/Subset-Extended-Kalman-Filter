@@ -54,7 +54,7 @@ class basic_optimizer(torch.optim.Optimizer):
                 p.data = flat_params[idx : idx + numel].reshape_as(p)
                 idx += numel
         return
-    # TODO: add save optimizer/parameter state to file funtion to BasicOptimizer
+    # TODO: add save optimizer/parameter state to file function to BasicOptimizer
     # logic: have a dictionary of saved parameters for each optimizer
 
 class maskedAdam(torch.optim.Adam, basic_optimizer):
