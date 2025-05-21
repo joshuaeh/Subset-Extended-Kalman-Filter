@@ -10,7 +10,7 @@ rng = np.random.default_rng(42)
 
 class NN(AbstractNN):
     def __init__(self):
-        super(AbstractNN, self).__init__()
+        super().__init__()
         self.fc1 = torch.nn.Linear(1, 16)
         self.fc2 = torch.nn.Linear(16, 1)
 

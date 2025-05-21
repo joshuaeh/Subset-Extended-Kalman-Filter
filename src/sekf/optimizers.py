@@ -43,7 +43,7 @@ class basic_optimizer(torch.optim.Optimizer):
     #         partial_grads[i] = self._get_flat_grads()
     #     return partial_grads
 
-    # # TODO: refactor to include vectorized, funcitonal operations for multi-dimensional outputs
+    # # TODO: refactor to include vectorized, functional operations for multi-dimensional outputs
 
     # @torch.no_grad()
     def _set_flat_params(self, flat_params):
@@ -54,7 +54,7 @@ class basic_optimizer(torch.optim.Optimizer):
                 p.data = flat_params[idx : idx + numel].reshape_as(p)
                 idx += numel
         return
-    # TODO: add save optimizer/parameter state to file funtion to BasicOptimizer
+    # TODO: add save optimizer/parameter state to file function to BasicOptimizer
     # logic: have a dictionary of saved parameters for each optimizer
 
 class maskedAdam(torch.optim.Adam, basic_optimizer):
