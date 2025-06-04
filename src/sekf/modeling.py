@@ -292,15 +292,12 @@ def get_jacobian(model:torch.nn.Module,
     # TODO: automatically select between jacrev and jacfwd based in n_inputs and n_outputs.
     #     forward will be faster for n_inputs << n_outputs, reverse when n_outputs << n_inputs
     assert jac_mode in [jacrev, jacfwd], f"jac_mode must be `jacrev` or `jacfwd`, got {jac_mode}"
-    # TODO: case statements require Python 3.10+
-    match wrt:
-        case "parameters":
-            f = lambda parameters, inputs: functional_call(model, parameters, inputs)
-            jac_dict = jac_mode(f)(dict(model.named_parameters()), inputs)
-        case "inputs":
-            jac_dict = jac_mode(model)(inputs)
-        case _:
-            raise ValueError(f"wrt must be 'parameters' or 'inputs', got {wrt}")
+    assert wrt in ["parameters", "inputs"], f"wrt must be 'parameters' or 'inputs', got {wrt}"
+    if wrt == "parameters":
+        f = lambda parameters, inputs: functional_call(model, parameters, inputs)
+        jac_dict = jac_mode(f)(dict(model.named_parameters()), inputs)
+    else:
+        jac_dict = jac_mode(model)(inputs)
     return format_jacobian(jac_dict, dict(model.named_parameters()))
     
 
