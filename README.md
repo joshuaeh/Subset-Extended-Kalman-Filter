@@ -7,6 +7,8 @@ Updating Neural Network models as changes in the underlying system occur:
 
 ## Installation
 
+The only required dependencies aside from the standard library are `numpy>=1.8.0` (for `.npz` file saving) and `torch>=2.0.0` (for `torch.func` functions)
+
 The `sekf` package can be installed using `pip`:
 
 - `pip install sekf` to install from pypi
