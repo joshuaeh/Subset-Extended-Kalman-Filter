@@ -58,9 +58,12 @@ class basic_optimizer(torch.optim.Optimizer):
     # logic: have a dictionary of saved parameters for each optimizer
 
 class maskedAdam(torch.optim.Adam, basic_optimizer):
-    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8, weight_decay=0, amsgrad=False, mask=None):
+    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8, weight_decay=0, amsgrad=False, mask=None, mask_fn_thresh=None,
+    mask_fn_quantile_thresh=None):
         super(maskedAdam, self).__init__(params, lr, betas, eps, weight_decay, amsgrad)
         self.mask = mask
+        self.mask_fn_thresh = mask_fn_thresh
+        self.mask_fn_quantile_thresh = mask_fn_quantile_thresh
         return
 
     def masked_step(self, mask=None, grad_thresh=None, grad_quantile=None, closure=None):
@@ -70,18 +73,14 @@ class maskedAdam(torch.optim.Adam, basic_optimizer):
 
         # get the pre-step parameters and gradients
         pre_step_params = self._get_flat_params()
-        if grad_thresh is not None:
-            pre_step_grads = self._get_flat_grads()
-            mask = pre_step_grads.abs() > grad_thresh
-
-        elif grad_quantile is not None:
-            pre_step_grads = self._get_flat_grads()
-            quantile_value = pre_step_grads.abs().quantile(grad_quantile)
-            mask = pre_step_grads.abs() > quantile_value
-
-        elif mask is None:
-            super(maskedAdam, self).step(closure=closure)
-            return
+        # set mask.
+        # mask arg has prescedence otherwise grad_thresh and grad_quantile
+        if mask is None:
+            mask = mask_fn(
+                self._get_flat_grads(),
+                thresh=self.mask_fn_thresh if grad_thresh is None else grad_thresh,
+                quantile_thresh=self.mask_fn_quantile_thresh if grad_quantile is None else grad_quantile
+            )
 
         # normal step
         super(maskedAdam, self).step(closure=closure)
