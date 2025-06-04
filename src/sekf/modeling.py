@@ -1,6 +1,14 @@
 import torch
-from torch.func import functional_call, grad, vmap, jacrev, jacfwd
-import numpy as np
+from torch.func import functional_call, jacrev, jacfwd
+
+
+bytes_dict = {
+    "B": 1,
+    "KB": 1024,
+    "MB": 1024**2,
+    "GB": 1024**3,
+    "TB": 1024**4,
+}
 
 # TODO: Torch/numpy scaler class
 class AbstractNN(torch.nn.Module):
@@ -284,6 +292,7 @@ def get_jacobian(model:torch.nn.Module,
     # TODO: automatically select between jacrev and jacfwd based in n_inputs and n_outputs.
     #     forward will be faster for n_inputs << n_outputs, reverse when n_outputs << n_inputs
     assert jac_mode in [jacrev, jacfwd], f"jac_mode must be `jacrev` or `jacfwd`, got {jac_mode}"
+    # TODO: case statements require Python 3.10+
     match wrt:
         case "parameters":
             f = lambda parameters, inputs: functional_call(model, parameters, inputs)
