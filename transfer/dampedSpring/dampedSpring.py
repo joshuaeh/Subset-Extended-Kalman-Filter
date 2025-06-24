@@ -179,7 +179,7 @@ def get_transfer_data(k, v, data_dir=os.path.join(DATA_DIR, "transfer")):
     if not os.path.exists(os.path.join(data_dir, scenario_filename)):
         return False
     data = np.load(os.path.join(data_dir, scenario_filename))
-    data_x = np.load(os.path.join(data_dir, "X.npy"))["X"]
+    data_x = np.load(os.path.join(data_dir, "X.npz"))["X"]
     data_y = data["Y"]
     return data_x, data_y
 
@@ -375,7 +375,7 @@ scenarios = [
 
 
 ### Generate transfer learning data
-if not os.path.exists(os.path.join("data", "transfer", "X.npy")):
+if not os.path.exists(os.path.join(DATA_DIR, "transfer", "X.npy")):
     rng = np.random.default_rng(42)
     X_transfer = rng.uniform(-5, 5, (100000, 2))
     np.savez(os.path.join(DATA_DIR, "transfer", "X"), X=X_transfer)
