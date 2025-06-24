@@ -408,8 +408,6 @@ k,v = list(kw.items())[0]
 x, y = get_transfer_data(k, v)
 x_train, y_train, x_val, y_val, x_test, y_test = train_val_test_split(x, y, n_train=N_TRANSFER, n_validation=N_TRANSFER_VALIDATION, n_test=N_TRANSFER_TOTAL - N_TRANSFER - N_TRANSFER_VALIDATION, tensor_convert=True)
 
-spring_trainable = DampedSpringTrainer()
-
 config = {
     "lr": tune.loguniform(1e-6, 1e-2),
     "batch_size": tune.choice([16, 32, 64, 128, 256, 500, 1000]),
@@ -431,8 +429,8 @@ scheduler = ASHAScheduler(
     reduction_factor=2)
 
 tuner = tune.Tuner(
+    DampedSpringTrainer,
     tune.with_resources(
-        spring_trainable,
         resources={"cpu": N_CPUS}
     ),
     tune_config=tune.TuneConfig(
