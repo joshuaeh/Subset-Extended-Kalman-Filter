@@ -402,73 +402,72 @@ for kw in scenarios:
 
 
 ### Ray tune hyperparameters
-# for kw in scenarios:
-kw = scenarios[0]
-k,v = list(kw.items())[0]
-x, y = get_transfer_data(k, v)
-x_train, y_train, x_val, y_val, x_test, y_test = train_val_test_split(x, y, n_train=N_TRANSFER, n_validation=N_TRANSFER_VALIDATION, n_test=N_TRANSFER_TOTAL - N_TRANSFER - N_TRANSFER_VALIDATION, tensor_convert=True)
+for kw in scenarios:
+    k,v = list(kw.items())[0]
+    x, y = get_transfer_data(k, v)
+    x_train, y_train, x_val, y_val, x_test, y_test = train_val_test_split(x, y, n_train=N_TRANSFER, n_validation=N_TRANSFER_VALIDATION, n_test=N_TRANSFER_TOTAL - N_TRANSFER - N_TRANSFER_VALIDATION, tensor_convert=True)
 
-config = {
-    "lr": tune.loguniform(1e-6, 1e-2),
-    "batch_size": tune.choice([16, 32, 64, 128, 256, 500, 1000]),
-    "max_epochs": 1000,
-    "mask_fn_quantile_thresh": tune.uniform(0.0, 1.0),
-    "num_trials": 4,
-    "train_x": x_train,
-    "train_y": y_train,
-    "val_x": x_val,
-    "val_y": y_val,
-    "test_x": x_test,
-    "test_y": y_test,
-}
+    config = {
+        "lr": tune.loguniform(1e-6, 1e-2),
+        "batch_size": tune.choice([16, 32, 64, 128, 256, 500, 1000]),
+        "max_epochs": 1000,
+        "mask_fn_quantile_thresh": tune.uniform(0.0, 1.0),
+        "num_trials": 200,
+        "train_x": x_train,
+        "train_y": y_train,
+        "val_x": x_val,
+        "val_y": y_val,
+        "test_x": x_test,
+        "test_y": y_test,
+    }
 
-scheduler = ASHAScheduler(
-    time_attr="training_iteration",
-    max_t=config["max_epochs"],
-    grace_period=50,
-    reduction_factor=2)
+    scheduler = ASHAScheduler(
+        time_attr="training_iteration",
+        max_t=config["max_epochs"],
+        grace_period=50,
+        reduction_factor=2)
 
-tuner = tune.Tuner(
-    tune.with_resources(DampedSpringTrainer,
-        resources={"cpu": N_CPUS}
-    ),
-    tune_config=tune.TuneConfig(
-        metric="val_loss",
-        mode="min",
-        scheduler=scheduler,
-        max_concurrent_trials=N_CPUS,
-        num_samples=config["num_trials"],
-
-    ),
-    param_space=config,
-    run_config = tune.RunConfig(
-        name=f"dampedSpring_{k}({v})",
-        # storage_path=r"C:\Users\jhamm\Desktop\SEKF\transfer\dampedSpring\data\ray_results",
-        checkpoint_config=tune.CheckpointConfig(
-            num_to_keep=1,
-            checkpoint_frequency=50,
+    tuner = tune.Tuner(
+        tune.with_resources(DampedSpringTrainer,
+            resources={"cpu": N_CPUS}
         ),
+        tune_config=tune.TuneConfig(
+            metric="val_loss",
+            mode="min",
+            scheduler=scheduler,
+            max_concurrent_trials=N_CPUS,
+            num_samples=config["num_trials"],
+
+        ),
+        param_space=config,
+        run_config = tune.RunConfig(
+            name=f"dampedSpring_{k}({v})",
+            # storage_path=r"C:\Users\jhamm\Desktop\SEKF\transfer\dampedSpring\data\ray_results",
+            checkpoint_config=tune.CheckpointConfig(
+                num_to_keep=1,
+                checkpoint_frequency=50,
+            ),
 
 
+        )
     )
-)
-results = tuner.fit()
+    results = tuner.fit()
 
-best_result = results.get_best_result("val_loss", "min")
+    best_result = results.get_best_result("val_loss", "min")
 
-print(f"Best trial config: {best_result.config}")
-print(f"Best trial final validation loss: {best_result.metrics}")
-metrics_df = results.get_dataframe()
-metrics_df.to_csv(os.path.join("data", "transfer", f"{k}({v})_allTrials_metrics.csv"))
-best_result_df = best_result.metrics_dataframe
-best_result_df.to_csv(os.path.join("data", "transfer", f"{k}({v})_bestResult_metrics.csv"))
-print(f"{best_result.path=}")
-print(f"{best_result.checkpoint=}")
-with best_result.checkpoint.as_directory() as checkpoint_dir:
-    model = MLP()
-    model_state_dict = torch.load(os.path.join(checkpoint_dir, "model.pt"))
-    model.load_state_dict(model_state_dict)
-    torch.save(model, os.path.join("data","transfer", f"{k}({v})_model.pth"))
+    print(f"Best trial config: {best_result.config}")
+    print(f"Best trial final validation loss: {best_result.metrics}")
+    metrics_df = results.get_dataframe()
+    metrics_df.to_csv(os.path.join("data", "transfer", f"{k}({v})_allTrials_metrics.csv"))
+    best_result_df = best_result.metrics_dataframe
+    best_result_df.to_csv(os.path.join("data", "transfer", f"{k}({v})_bestResult_metrics.csv"))
+    print(f"{best_result.path=}")
+    print(f"{best_result.checkpoint=}")
+    with best_result.checkpoint.as_directory() as checkpoint_dir:
+        model = MLP()
+        model_state_dict = torch.load(os.path.join(checkpoint_dir, MODEL_FILENAME))
+        model.load_state_dict(model_state_dict)
+        torch.save(model, os.path.join("data","transfer", f"{k}({v})_model.pth"))
 
 # delete /tmp/ray_results/dampedSpring_{k}({v})
 
