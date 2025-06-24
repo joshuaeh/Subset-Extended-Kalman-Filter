@@ -38,13 +38,13 @@ N_TRANSFER = 1000
 N_TRANSFER_VALIDATION = 1000
 N_TRANSFER_TOTAL = 100_000
 
-PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+CASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL0_FILENAME = "modelv0.pth"
-MODEL0_PATH = os.path.join(PROJECT_DIR, MODEL0_FILENAME)
+MODEL0_PATH = os.path.join(CASE_DIR, MODEL0_FILENAME)
 MODEL0_WEIGHTS_FILENAME = "modelv0_weights.pth"
-MODEL0_WEIGHTS_PATH = os.path.join(PROJECT_DIR, MODEL0_WEIGHTS_FILENAME)
+MODEL0_WEIGHTS_PATH = os.path.join(CASE_DIR, MODEL0_WEIGHTS_FILENAME)
 MODEL_FILENAME = "model.pth"
-DATA_DIR = os.path.join(PROJECT_DIR, "data")
+DATA_DIR = os.path.join(CASE_DIR, "data")
 TRAINING_DATA_FILENAME = "training_data.npz"
 TRAINING_METRICS_FILENAME = "training_metrics.npz"
 
