@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import ray
-from ray import train, tune
+from ray import tune
 from ray.tune.schedulers import ASHAScheduler
 from scipy.integrate import solve_ivp
 import tempfile
@@ -30,10 +30,6 @@ from sekf.optimizers import maskedAdam, SEKF
 
 ########## Config ##########
 
-ray.init(ignore_reinit_error=True, num_cpus=4)
-assert ray.is_initialized()
-
-# constants
 # Randomly sample initial conditions for training and testing
 N_TRAIN = 100_000
 N_VALIDATION = 10_000
@@ -51,6 +47,10 @@ MODEL_FILENAME = "model.pth"
 DATA_DIR = os.path.join(PROJECT_DIR, "data")
 TRAINING_DATA_FILENAME = "training_data.npz"
 TRAINING_METRICS_FILENAME = "training_metrics.npz"
+
+N_CPUS = 30
+ray.init(ignore_reinit_error=True, num_cpus=N_CPUS)
+assert ray.is_initialized()
 
 
 
@@ -433,13 +433,13 @@ scheduler = ASHAScheduler(
 tuner = tune.Tuner(
     tune.with_resources(
         spring_trainable,
-        resources={"cpu": 4}
+        resources={"cpu": N_CPUS}
     ),
     tune_config=tune.TuneConfig(
         metric="val_loss",
         mode="min",
         scheduler=scheduler,
-        max_concurrent_trials=1,
+        max_concurrent_trials=N_CPUS,
         num_samples=config["num_trials"],
 
     ),
