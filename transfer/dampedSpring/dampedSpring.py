@@ -378,9 +378,9 @@ scenarios = [
 if not os.path.exists(os.path.join("data", "transfer", "X.npy")):
     rng = np.random.default_rng(42)
     X_transfer = rng.uniform(-5, 5, (100000, 2))
-    np.savez(os.path.join("data", "transfer", "X"), X=X_transfer)
+    np.savez(os.path.join(DATA_DIR, "transfer", "X"), X=X_transfer)
 else:
-    X_transfer = np.load(os.path.join("data", "transfer", "X.npy"))["X"]
+    X_transfer = np.load(os.path.join(DATA_DIR, "transfer", "X.npy"))["X"]
 
 for kw in scenarios:
     for k,v in kw.items():
