@@ -429,8 +429,7 @@ scheduler = ASHAScheduler(
     reduction_factor=2)
 
 tuner = tune.Tuner(
-    DampedSpringTrainer,
-    tune.with_resources(
+    tune.with_resources(DampedSpringTrainer,
         resources={"cpu": N_CPUS}
     ),
     tune_config=tune.TuneConfig(
