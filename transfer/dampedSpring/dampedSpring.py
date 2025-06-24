@@ -129,7 +129,7 @@ class DampedSpringTrainer(tune.Trainable):
     def save_checkpoint(self, tmp_checkpoint_dir):
         checkpoint_path = os.path.join(tmp_checkpoint_dir, MODEL_FILENAME)
         torch.save(self.model.state_dict(), checkpoint_path)
-        return checkpoint_path
+        return tmp_checkpoint_dir
     
     def load_checkpoint(self, tmp_checkpoint_dir):
         checkpoint_path = os.path.join(tmp_checkpoint_dir, MODEL_FILENAME)
