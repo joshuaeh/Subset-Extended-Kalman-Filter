@@ -104,16 +104,16 @@ class DampedSpringTrainer(tune.Trainable):
     def step(self):
         self.model.train()
         for x_batch, y_batch in self.train_dataloader:
-            optimizer.zero_grad()
-            y_pred = model(x_batch)
-            loss = loss_fn(y_pred, y_batch)
+            self.optimizer.zero_grad()
+            y_pred = self.model(x_batch)
+            loss = self.loss_fn(y_pred, y_batch)
             loss.backward()
-            optimizer.masked_step()
+            self.optimizer.masked_step()
 
         with torch.no_grad():
-            epoch_loss = loss_fn(self.model(self.train_x), self.train_y).item()
-            validation_loss = loss_fn(self.model(self.val_x), self.val_y).item()
-            test_loss = loss_fn(self.model(self.test_x), self.test_y).item()
+            epoch_loss = self.loss_fn(self.model(self.train_x), self.train_y).item()
+            validation_loss = self.loss_fn(self.model(self.val_x), self.val_y).item()
+            test_loss = self.loss_fn(self.model(self.test_x), self.test_y).item()
         self.scheduler.step(epoch_loss)
         # Log the training loss
         metrics = {
