@@ -12,7 +12,6 @@
 import os
 
 from dtaidistance import dtw
-from jtoolbox.logger import H5Logger
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -463,16 +462,16 @@ best_result = results.get_best_result("val_loss", "min")
 print(f"Best trial config: {best_result.config}")
 print(f"Best trial final validation loss: {best_result.metrics}")
 metrics_df = results.get_dataframe()
-metrics_df.to_csv(os.path.join("data", "tuning", f"{k}({v})_allTrials_metrics.csv"))
+metrics_df.to_csv(os.path.join("data", "transfer", f"{k}({v})_allTrials_metrics.csv"))
 best_result_df = best_result.metrics_dataframe
-best_result_df.to_csv(os.path.join("data", "tuning", f"{k}({v})_bestResult_metrics.csv"))
+best_result_df.to_csv(os.path.join("data", "transfer", f"{k}({v})_bestResult_metrics.csv"))
 print(f"{best_result.path=}")
 print(f"{best_result.checkpoint=}")
 with best_result.checkpoint.as_directory() as checkpoint_dir:
     model = MLP()
     model_state_dict = torch.load(os.path.join(checkpoint_dir, "model.pt"))
     model.load_state_dict(model_state_dict)
-    torch.save(model, os.path.join("data","tuning", f"{k}({v})_model.pth"))
+    torch.save(model, os.path.join("data","transfer", f"{k}({v})_model.pth"))
 
 # delete /tmp/ray_results/dampedSpring_{k}({v})
 
