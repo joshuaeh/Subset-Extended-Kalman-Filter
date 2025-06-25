@@ -49,8 +49,9 @@ DATA_DIR = os.path.join(CASE_DIR, "data")
 TRAINING_DATA_FILENAME = "training_data.npz"
 TRAINING_METRICS_FILENAME = "training_metrics.npz"
 
-N_CPUS = 30
-ray.init(ignore_reinit_error=True, num_cpus=N_CPUS)
+N_CPUS = 20
+
+ray.init(ignore_reinit_error=True)
 assert ray.is_initialized()
 
 
@@ -438,7 +439,7 @@ for kw in scenarios:
             scheduler=scheduler,
             max_concurrent_trials=N_CPUS,
             num_samples=config["num_trials"],
-
+            reuse_actors=True
         ),
         param_space=config,
         run_config = tune.RunConfig(
@@ -459,9 +460,9 @@ for kw in scenarios:
     print(f"Best trial config: {best_result.config}")
     print(f"Best trial final validation loss: {best_result.metrics}")
     metrics_df = results.get_dataframe()
-    metrics_df.to_csv(os.path.join("data", "transfer", f"{k}({v})_allTrials_metrics.csv"))
+    metrics_df.to_csv(os.path.join(DATA_DIR, "transfer", f"{k}({v})_allTrials_metrics.csv"))
     best_result_df = best_result.metrics_dataframe
-    best_result_df.to_csv(os.path.join("data", "transfer", f"{k}({v})_bestResult_metrics.csv"))
+    best_result_df.to_csv(os.path.join(DATA_DIR, "transfer", f"{k}({v})_bestResult_metrics.csv"))
     print(f"{best_result.path=}")
     print(f"{best_result.checkpoint=}")
     with best_result.checkpoint.as_directory() as checkpoint_dir:
