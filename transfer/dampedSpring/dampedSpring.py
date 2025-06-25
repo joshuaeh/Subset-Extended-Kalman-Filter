@@ -103,7 +103,7 @@ class DampedSpringTrainer(tune.Trainable):
         self.model.load_state_dict(weights_dict)
         
 
-    def step(self):
+    def step(self, train_x, train_y, val_x, val_y, test_x, test_y):
         self.model.train()
         for x_batch, y_batch in self.train_dataloader:
             self.optimizer.zero_grad()
@@ -113,9 +113,9 @@ class DampedSpringTrainer(tune.Trainable):
             self.optimizer.masked_step()
 
         with torch.no_grad():
-            epoch_loss = self.loss_fn(self.model(self.train_x), self.train_y).item()
-            validation_loss = self.loss_fn(self.model(self.val_x), self.val_y).item()
-            test_loss = self.loss_fn(self.model(self.test_x), self.test_y).item()
+            epoch_loss = self.loss_fn(self.model(train_x), train_y).item()
+            validation_loss = self.loss_fn(self.model(val_x), val_y).item()
+            test_loss = self.loss_fn(self.model(test_x), test_y).item()
         self.scheduler.step(epoch_loss)
         # Log the training loss
         metrics = {
@@ -174,7 +174,6 @@ def cosine_similarity(a, b):
 def cosine_distance(a, b):
     """computes row-wise cosine distance."""
     return (1 - cosine_similarity(a, b)) / 2
-    return x_train, y_train, x_val, y_val, x_test, y_test
 
 def get_transfer_data(k, v, data_dir=os.path.join(DATA_DIR, "transfer")):
     scenario_filename = f"{k}({v}).npz"
@@ -415,12 +414,12 @@ for kw in scenarios:
         "max_epochs": 1000,
         "mask_fn_quantile_thresh": tune.uniform(0.0, 1.0),
         "num_trials": 200,
-        "train_x": x_train,
-        "train_y": y_train,
-        "val_x": x_val,
-        "val_y": y_val,
-        "test_x": x_test,
-        "test_y": y_test,
+        # "train_x": x_train,
+        # "train_y": y_train,
+        # "val_x": x_val,
+        # "val_y": y_val,
+        # "test_x": x_test,
+        # "test_y": y_test,
     }
 
     scheduler = ASHAScheduler(
@@ -430,8 +429,18 @@ for kw in scenarios:
         reduction_factor=2)
 
     tuner = tune.Tuner(
-        tune.with_resources(DampedSpringTrainer,
-            resources={"cpu": N_CPUS}
+        tune.with_resources(
+            tune.with_parameters(
+                DampedSpringTrainer,
+                train_x=x_train,
+                train_y=y_train,
+                val_x=x_val,
+                val_y=y_val,
+                test_x=x_test,
+                test_y=y_test,
+            ),
+                
+            resources={"cpu": N_CPUS},
         ),
         tune_config=tune.TuneConfig(
             metric="val_loss",
