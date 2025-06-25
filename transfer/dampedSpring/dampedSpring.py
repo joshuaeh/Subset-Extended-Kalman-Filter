@@ -445,7 +445,7 @@ for kw in scenarios:
             # storage_path=r"C:\Users\jhamm\Desktop\SEKF\transfer\dampedSpring\data\ray_results",
             checkpoint_config=tune.CheckpointConfig(
                 num_to_keep=1,
-                checkpoint_frequency=50,
+                checkpoint_at_end=True
             ),
 
 
@@ -467,7 +467,7 @@ for kw in scenarios:
         model = MLP()
         model_state_dict = torch.load(os.path.join(checkpoint_dir, MODEL_FILENAME))
         model.load_state_dict(model_state_dict)
-        torch.save(model, os.path.join("data","transfer", f"{k}({v})_model.pth"))
+        torch.save(model, os.path.join(DATA_DIR,"transfer", f"{k}({v})_model.pth"))
 
 # delete /tmp/ray_results/dampedSpring_{k}({v})
 
