@@ -10,6 +10,7 @@
 ########## Imports ##########
 #############################
 import os
+import shutil
 
 from dtaidistance import dtw
 import matplotlib.pyplot as plt
@@ -464,10 +465,9 @@ for kw in scenarios:
     print(f"{best_result.path=}")
     print(f"{best_result.checkpoint=}")
     with best_result.checkpoint.as_directory() as checkpoint_dir:
-        model = MLP()
-        model_state_dict = torch.load(os.path.join(checkpoint_dir, MODEL_FILENAME))
-        model.load_state_dict(model_state_dict)
-        torch.save(model, os.path.join(DATA_DIR,"transfer", f"{k}({v})_model.pth"))
+        model_path = os.path.join(checkpoint_dir, MODEL_FILENAME)
+        target_path = os.path.join(DATA_DIR,"transfer", f"{k}({v})_model_weights.pth")
+        shutil.move(model_path, target_path)
 
 # delete /tmp/ray_results/dampedSpring_{k}({v})
 
