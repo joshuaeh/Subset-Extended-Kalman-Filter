@@ -1,5 +1,5 @@
 """"""
-##########
+##########https://update.code.visualstudio.com/1.101.1/cli-linux-x64/stable
 # TODO ###
 ##########
 # checkpoint last model -> trainable class, also set frequency to just last or infrequently
@@ -51,8 +51,8 @@ TRAINING_METRICS_FILENAME = "training_metrics.npz"
 
 N_CPUS = 20
 
-ray.init(ignore_reinit_error=True)
-assert ray.is_initialized()
+# ray.init(ignore_reinit_error=True)
+# assert ray.is_initialized()
 
 
 
@@ -440,7 +440,7 @@ for kw in scenarios:
                 test_y=y_test,
             ),
                 
-            resources={"cpu": N_CPUS},
+            resources={"cpu": 1},
         ),
         tune_config=tune.TuneConfig(
             metric="val_loss",
