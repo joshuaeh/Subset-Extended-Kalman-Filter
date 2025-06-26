@@ -42,13 +42,23 @@ dev = [
     "pytest"
 ]
 examples = [
-    "pandas",
+    "ipykernel",
     "jupyter",
+    "pandas",
     "matplotlib",
     "numpy"
 ]
+transfer = [
+    "dtaidistance",
+    "matplotlib",
+    "numpy",
+    "pandas",
+    "ray[tune]",
+    "scipy",
+    "tqdm"
+]
 all = [
-"sekf[dev,examples]"
+"sekf[dev,examples,transfer]"
 ]
 
 [project.urls]
