@@ -91,6 +91,8 @@ class MLP(nn.Module):
         x = self.fc4(x)
         return x
 
+default_config = {}
+
 class DampedSpringTrainer(tune.Trainable):
     """Trainer for the Damped Spring model using Ray Tune.
     config (dict): Configuration dictionary containing hyperparameters.
@@ -214,7 +216,6 @@ class DampedSpringTrainer(tune.Trainable):
         """Reset the configuration of the trainer."""
         self.setup(new_config, self.data)
         return True
-
 
 # Mass-Spring-Damper system simulation
 def mass_spring_damper(t, state, m, c, k, u):
