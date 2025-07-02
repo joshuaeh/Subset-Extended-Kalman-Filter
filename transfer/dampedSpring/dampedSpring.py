@@ -46,7 +46,11 @@ MODEL0_WEIGHTS_FILENAME = "modelv0_weights.pth"
 MODEL0_WEIGHTS_PATH = os.path.join(CASE_DIR, MODEL0_WEIGHTS_FILENAME)
 MODEL_FILENAME = "model.pth"
 DATA_DIR = os.path.join(CASE_DIR, "data")
+os.makedirs(DATA_DIR, exist_ok=True)
 TRAINING_DATA_FILENAME = "training_data.npz"
+TRAINING_METRICS_FILENAME = "training_metrics.csv"
+TRANSFER_DIR = os.path.join(DATA_DIR, "transfer")
+os.makedirs(TRANSFER_DIR, exist_ok=True)
 
 SCENARIOS = [
     {"m":1.1},
@@ -59,13 +63,15 @@ SCENARIOS = [
     {"u":-1.0},
     ]
 
+# configs to change
 
-N_CPUS = 20
+N_CPUS = 4
+N_HYPERPARAMETER_TRIALS = 50
 
 # ray.init(ignore_reinit_error=True)
 # assert ray.is_initialized()
 
-
+rng = np.random.default_rng(42)
 
 # Define the MLP model
 class MLP(nn.Module):
