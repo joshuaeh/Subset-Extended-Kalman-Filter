@@ -91,7 +91,19 @@ class MLP(nn.Module):
         x = self.fc4(x)
         return x
 
-default_config = {}
+default_config = {
+    "batch_size": 64,
+    "initialize_weights": "random",  # or "finetune"
+    "lr": 1e-3,
+    "lr_patience": 20,
+    "lr_factor": 0.5,
+    "max_epochs": 1000,
+    "mask_fn_quantile_thresh": 0.0,
+    "optimizer": "adam",
+    "sekf_q": 0.1,
+    "sekf_p0": 100.0,
+    "sekf_save_path": None,  
+}
 
 class DampedSpringTrainer(tune.Trainable):
     """Trainer for the Damped Spring model using Ray Tune.
@@ -113,14 +125,14 @@ class DampedSpringTrainer(tune.Trainable):
     """
     
     def setup(self, config, data):
-        self.config = config
-        self._init_model(config)
-        self._init_optimizer(config)
+        self.config = default_config | config
+        self._init_model(self.config)
+        self._init_optimizer(self.config)
         self.loss_fn = nn.MSELoss()
-        self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, 'min', patience=config.get("lr_patience"), factor=config.get("lr_factor"))
+        self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, 'min', patience=self.config.get("lr_patience"), factor=self.config.get("lr_factor"))
         self.train_dataloader = torch.utils.data.DataLoader(
             torch.utils.data.TensorDataset(data["train_x"], data["train_y"]),
-            batch_size=config["batch_size"],
+            batch_size=self.config["batch_size"],
             shuffle=True,
         )
         self.initial_weights = self.optimizer._get_flat_params().detach().numpy()
