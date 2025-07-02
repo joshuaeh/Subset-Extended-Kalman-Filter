@@ -148,3 +148,4 @@ examples/*/*.csv
 examples/*/*.png
 examples/*/*.npz
 examples/*/*.pth
+examples/*
