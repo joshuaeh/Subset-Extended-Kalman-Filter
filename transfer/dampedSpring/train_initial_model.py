@@ -54,6 +54,20 @@ if __name__ == "__main__":
         max_t=1000,
         grace_period=50,
         reduction_factor=2)
+    
+    scheduler = ASHAScheduler(
+        time_attr="training_iteration",
+        max_t=1000,
+        grace_period=50,
+        reduction_factor=2)
+    
+    trial_stopper = TrialPlateauStopper(
+        metric="val_loss",
+        std=0.00001,
+        num_results=30,
+        grace_period=50,
+        mode="min"
+    )
 
     tuner = tune.Tuner(
         tune.with_resources(
@@ -82,8 +96,7 @@ if __name__ == "__main__":
                 checkpoint_frequency=1000,
                 checkpoint_at_end=True
             ),
-
-
+            stop=trial_stopper
         )
     )
     results = tuner.fit()
