@@ -218,7 +218,7 @@ class DampedSpringTrainer(tune.Trainable):
                 "val_loss": self.loss_fn(self.model(data["val_x"]), data["val_y"]).item(),
                 "test_loss": self.loss_fn(self.model(data["test_x"]), data["test_y"]).item(),
                 "cosine_similarity_weights": cosine_similarity(self.initial_weights, self.optimizer._get_flat_params().detach().numpy()),
-                "lr": self.optimizer.param_groups[0]["lr"],
+                "lr": self.scheduler.get_last_lr()[0],
             }
         self.scheduler.step(metrics["val_loss"])
         return metrics
