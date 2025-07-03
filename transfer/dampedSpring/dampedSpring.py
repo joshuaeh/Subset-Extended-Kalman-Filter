@@ -188,9 +188,19 @@ class DampedSpringTrainer(tune.Trainable):
         
     def _sekf_step(self, x_batch, y_batch):
         """Performs a single step of the SEKF optimizer."""
-        y_pred, _ = self.optimizer.easy_step(
-            self.model, (x_batch), y_batch, self.loss_fn
-        )
+        y_pred = self.model(x_batch)
+        e = y_batch - y_pred
+        
+        if self.config.get("mask_fn_quantile_thresh",0.0) > 0.0:
+            loss = self.loss_fn(y_pred, y_batch)
+            loss.backward()
+            grad_loss = self.optimizer._get_flat_grads()
+            mask = self.optimizer.mask_fn(grad_loss)
+        else:
+            mask = None
+        J = get_jacobian(self.model, (x_batch))
+        self.optimizer.step(e, J, mask=mask)
+        
         
         
     def _optimizer_step(self, x_batch, y_batch):
