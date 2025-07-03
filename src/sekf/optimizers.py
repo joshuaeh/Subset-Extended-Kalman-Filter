@@ -10,6 +10,8 @@ logger = logging.getLogger(__name__)
 
 class basic_optimizer(torch.optim.Optimizer):
     """Base class for my optimizers that includes parameter access and setting utilities"""
+    # TODO: add masking utilities to base optimizer
+    # TODO: add state_dict serialization
 
     # @torch.no_grad()
     def _get_flat_params(self):
@@ -133,7 +135,7 @@ class SEKF(basic_optimizer):
         q (float, optional): process noise (default: 1e-1) P&F recommend 0 for no noise up to 0.1. Generally annealed from large value to value on the order of 1e-6. This annealing helps convergence and by keeping non-zero helps avoid divergence of error covariance update
         p0 (float, optional): initial covariance matrix diagonal values (default: 1e-1)  P&F recommend 100 for sigmoid and 1,000 for linear activations
     """
-
+    # TODO: state_dict for saving and loading optimizer state (including P and Q matrices), lr, etc. 
     def __init__(
         self,
         params,
