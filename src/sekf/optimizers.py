@@ -200,7 +200,7 @@ class SEKF(basic_optimizer):
             assert mask.shape == (J.shape[1],), (
                 f"Mask must have the same number of elements as the number of parameters, received {mask.shape[0]} expected {J.shape[1]}"
             )
-        e = e.reshape(-1, 1)
+        e = e.reshape(-1, 1)  # (N_out * N_stream, 1) innovation column vector
 
         A0 = torch.eye(J.shape[0]) / self.learning_rate + J[:, mask] @ self.P[mask][:, mask] @ J[:, mask].T
         A = torch.linalg.solve(A0, torch.eye(J.shape[0]))
