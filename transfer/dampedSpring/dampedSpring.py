@@ -19,6 +19,7 @@ import pandas as pd
 import ray
 from ray import tune
 from ray.tune.schedulers import ASHAScheduler
+from ray.tune.stopper import CombinedStopper, ExperimentPlateauStopper, TrialPlateauStopper
 from scipy.integrate import solve_ivp
 import tempfile
 import torch
