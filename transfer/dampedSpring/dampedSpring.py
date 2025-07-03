@@ -324,21 +324,24 @@ def get_transfer_data(transfer_params, data_dir=os.path.join(DATA_DIR, "transfer
     data_y = data["Y"]
     return data_x, data_y
 
-def generate_transfer_data(transfer_params, n_samples=1000, data_dir=os.path.join(DATA_DIR, "transfer")):
+def generate_transfer_data(transfer_params, n_samples=N_TRANSFER_TOTAL, data_dir=os.path.join(DATA_DIR, "transfer"), t_eval=np.arange(1, 21)):
     """Generates transfer data for the given parameters."""
     if not os.path.exists(os.path.join(data_dir, "X.npy")):
         rng = np.random.default_rng(42)
-        X_transfer = rng.uniform(-5, 5, (n_samples, 2), dtype=np.float32)
+        X_transfer = rng.uniform(-5, 5, (n_samples, 2)).astype(np.float32)
         np.savez(os.path.join(data_dir, "X"), X=X_transfer)
     else:
         X_transfer = np.load(os.path.join(data_dir, "X.npy"))["X"]
-    
-    _, Y_transfer = generate_dataset(X_transfer[:, 0], X_transfer[:, 1], **transfer_params)
+        
+    if os.path.exists(os.path.join(data_dir, transfer_scenario_name(transfer_params) + ".npz")):
+        Y_transfer =  get_transfer_data(transfer_params, data_dir)
+    else:
+        _, Y_transfer = generate_dataset(X_transfer[:, 0], X_transfer[:, 1], t_eval=t_eval, **transfer_params)
+        scenario_filename = transfer_scenario_name(transfer_params) + ".npz"
+        np.savez(os.path.join(data_dir, scenario_filename), Y=Y_transfer)
     # ensure float32 type
     Y_transfer = np.array(Y_transfer, dtype=np.float32)
     
-    scenario_filename = transfer_scenario_name(transfer_params) + ".npz"
-    np.savez(os.path.join(data_dir, scenario_filename), Y=Y_transfer)
     return X_transfer, Y_transfer
 
 def train_val_test_split(x,y, n_train=None, n_validation=None, n_test=None, p_train=None, p_validation=None, p_test=None, tensor_convert=False):
