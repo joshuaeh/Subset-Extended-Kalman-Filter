@@ -268,6 +268,12 @@ class DampedSpringTrainer(tune.Trainable):
         """Reset the configuration of the trainer."""
         self.setup(new_config, self.data)
         return True
+    
+    def cleanup(self):
+        """Cleanup resources."""
+        # No specific cleanup needed for this trainer
+        self.save()
+        
 
 # Mass-Spring-Damper system simulation
 def mass_spring_damper(t, state, m, c, k, u):
