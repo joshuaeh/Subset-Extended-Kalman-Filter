@@ -8,7 +8,7 @@ os.makedirs(results_dir, exist_ok=True)
 
 # script
 if __name__ == "__main__":
-    for scenario in scenarios:
+    for scenario in SCENARIOS:
         scenario_name = transfer_scenario_name(scenario)
         if not get_transfer_data(scenario):
             x, y = generate_transfer_data(scenario, N_TRANSFER_TOTAL)
@@ -41,6 +41,14 @@ if __name__ == "__main__":
             max_t=config["max_epochs"],
             grace_period=50,
             reduction_factor=2)
+        
+        trial_stopper = TrialPlateauStopper(
+            metric="val_loss",
+            std=0.1e-6,
+            num_results=10,
+            grace_period=50,
+            mode="min"
+        )
 
         tuner = tune.Tuner(
             tune.with_resources(
@@ -69,7 +77,7 @@ if __name__ == "__main__":
                     checkpoint_frequency=1000,
                     checkpoint_at_end=True
                 ),
-
+                stop=trial_stopper
 
             )
         )
