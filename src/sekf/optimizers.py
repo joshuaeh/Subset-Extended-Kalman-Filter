@@ -247,6 +247,8 @@ class SEKF(basic_optimizer):
             y_pred (torch.Tensor): predicted output
             step_info (dict, None): additional information if verbose=True, otherwise None
         """
+        # TODO: Need better way to handle multi-input models, this is squashing the inputs when input-dim is one
+        self.zero_grad()  # clear previous gradients
         y_pred = model(*x_true)
         e = y_true - y_pred
         loss = loss_fn(y_pred, y_true)
