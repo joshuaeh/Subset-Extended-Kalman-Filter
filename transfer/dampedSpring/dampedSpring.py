@@ -43,17 +43,24 @@ N_TRANSFER_TOTAL = 100_000
 MEASUREMENT_NOISE_PM = 0.1
 
 CASE_DIR = os.path.dirname(os.path.abspath(__file__))
-MODEL0_FILENAME = "modelv0.pth"
-MODEL0_PATH = os.path.join(CASE_DIR, MODEL0_FILENAME)
-MODEL0_WEIGHTS_FILENAME = "modelv0_weights.pth"
-MODEL0_WEIGHTS_PATH = os.path.join(CASE_DIR, MODEL0_WEIGHTS_FILENAME)
-MODEL_FILENAME = "model.pth"
+MODEL_FILENAME = "model_weights.pth"
+OPTIMIZER_STATE_SEKF = "sekf_optimizer_state.npz"
 DATA_DIR = os.path.join(CASE_DIR, "data")
 os.makedirs(DATA_DIR, exist_ok=True)
+MODEL0_WEIGHTS_PATH = os.path.join(DATA_DIR, MODEL_FILENAME)
 TRAINING_DATA_FILENAME = "training_data.npz"
 TRAINING_METRICS_FILENAME = "training_metrics.csv"
 TRANSFER_DIR = os.path.join(DATA_DIR, "transfer")
 os.makedirs(TRANSFER_DIR, exist_ok=True)
+RESULTS_DIRS = {
+    "training": DATA_DIR,
+    "transfer_finetuning": os.path.join(DATA_DIR, "transfer_finetuning"),
+    "transfer_finetuning_SEKF": os.path.join(DATA_DIR, "transfer_finetuning_SEKF"),
+    "transfer_retraining": os.path.join(DATA_DIR, "transfer_retraining"),
+}
+ALL_TRIALS_BASE_FILENAME = "allTrials_metrics.csv"
+BEST_RESULT_BASE_FILENAME = "bestResult_metrics.csv"
+
 
 SCENARIOS = [
     {"m":1.1},
