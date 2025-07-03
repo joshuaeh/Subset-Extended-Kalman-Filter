@@ -148,9 +148,14 @@ class SEKF(basic_optimizer):
             raise ValueError(f"Invalid learning rate: {lr}")
         self.mask_fn = lambda x: mask_fn(x, thresh=mask_fn_thresh, quantile_thresh=mask_fn_quantile_thresh)
         self.learning_rate = lr
-        # defaults = dict(lr=lr)
-        defaults = dict()
-        super(SEKF, self).__init__(params, defaults)
+        defaults = dict(
+            lr=lr,
+            q=q,
+            p0=p0
+        )
+        # defaults = dict()
+        # super(SEKF, self).__init__(params, defaults)
+        super().__init__(params, defaults)
         self._init_SEKF(p0, q)
         self.save_path = save_path
         if self.save_path is not None:
