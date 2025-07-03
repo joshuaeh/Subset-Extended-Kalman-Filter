@@ -233,16 +233,35 @@ class DampedSpringTrainer(tune.Trainable):
         self.scheduler.step(metrics["val_loss"])
         return metrics
 
+    def save_optimizer_state(self, tmp_checkpoint_dir):
+        """"""
+        match self.config.get("optimizer"):
+            case "adam":
+                pass
+            case "sekf":
+                self.optimizer.save_params(path=os.path.join(tmp_checkpoint_dir, OPTIMIZER_STATE_SEKF))
+        return
+    
+    def load_optimizer_state(self, tmp_checkpoint_dir):
+        """Loads the state of the optimizer."""
+        match self.config.get("optimizer"):
+            case "adam":
+                pass
+            case "sekf":
+                self.optimizer.load_params(path=os.path.join(tmp_checkpoint_dir, OPTIMIZER_STATE_SEKF))
+        return
+    
     def save_checkpoint(self, tmp_checkpoint_dir, model_fname=MODEL_FILENAME):
         checkpoint_path = os.path.join(tmp_checkpoint_dir, model_fname)
         torch.save(self.model.state_dict(), checkpoint_path)
-        # TODO: save optimizer state if needed
+        # Save optimizer state if needed
+        self.save_optimizer_state(tmp_checkpoint_dir)
         return tmp_checkpoint_dir
     
     def load_checkpoint(self, tmp_checkpoint_dir, model_fname=MODEL_FILENAME):
         checkpoint_path = os.path.join(tmp_checkpoint_dir, model_fname)
         self.model.load_state_dict(torch.load(checkpoint_path))
-        # TODO: Load optimizer state if needed
+        self.load_optimizer_state(tmp_checkpoint_dir)
         return 
     
     def reset_config(self, new_config):
