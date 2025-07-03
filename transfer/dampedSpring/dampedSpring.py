@@ -294,8 +294,8 @@ def generate_dataset(x0_samples, x_dot0_samples, **kwargs):
     for x0, x_dot0 in tqdm(zip(x0_samples, x_dot0_samples)):
         t_sim, states_sim = sim_mass_spring_damper(x0=x0, x_dot0=x_dot0, **kwargs)
         X.append([x0, x_dot0])
-        Y.append(states_sim[0])
-    return np.array(X), np.array(Y)
+        Y.append(states_sim[0])  # Position at each time step
+    return np.array(X, dtype=np.float32), np.array(Y, dtype=np.float32)
 
 ## cosine similarity
 # use einsum to compute Y_train @ Y_transfer.T / ||Y_train|| * ||Y_transfer||
