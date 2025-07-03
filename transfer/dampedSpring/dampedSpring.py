@@ -27,7 +27,7 @@ import torch.nn as nn
 import torch.optim as optim
 from tqdm.autonotebook import tqdm
 
-from sekf.modeling import init_weights
+from sekf.modeling import init_weights, get_jacobian
 from sekf.optimizers import maskedAdam, SEKF
 
 ########## Config ##########
