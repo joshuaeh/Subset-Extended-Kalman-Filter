@@ -150,3 +150,8 @@ examples/*/*.npz
 examples/*/*.pth
 examples/**
 examples/*
+
+# transfer data, results, and miscelenea
+transfer/dampedSpring/data/*
+transfer/dampedSpring/results/*
+_transfer/*
