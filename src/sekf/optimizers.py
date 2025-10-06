@@ -8,19 +8,29 @@ from .modeling import mask_fn, get_jacobian
 
 logger = logging.getLogger(__name__)
 
+
 class basic_optimizer(torch.optim.Optimizer):
     """Base class for my optimizers that includes parameter access and setting utilities"""
+
     # TODO: add masking utilities to base optimizer
     # TODO: add state_dict serialization
 
     # @torch.no_grad()
     def _get_flat_params(self):
-        return torch.cat([torch.cat([p.flatten() for p in param_group["params"]]) for param_group in self.param_groups])
+        return torch.cat(
+            [
+                torch.cat([p.flatten() for p in param_group["params"]])
+                for param_group in self.param_groups
+            ]
+        )
 
     # @torch.no_grad()
     def _get_flat_grads(self):
         return torch.cat(
-            [torch.cat([p.grad.flatten() for p in param_group["params"]]) for param_group in self.param_groups]
+            [
+                torch.cat([p.grad.flatten() for p in param_group["params"]])
+                for param_group in self.param_groups
+            ]
         )
 
     # def _multidimensional_backprop(self, backpropagated_tensor):
@@ -56,19 +66,33 @@ class basic_optimizer(torch.optim.Optimizer):
                 p.data = flat_params[idx : idx + numel].reshape_as(p)
                 idx += numel
         return
+
     # TODO: add save optimizer/parameter state to file function to BasicOptimizer
     # logic: have a dictionary of saved parameters for each optimizer
 
+
 class maskedAdam(torch.optim.Adam, basic_optimizer):
-    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8, weight_decay=0, amsgrad=False, mask=None, mask_fn_thresh=None,
-    mask_fn_quantile_thresh=None):
+    def __init__(
+        self,
+        params,
+        lr=1e-3,
+        betas=(0.9, 0.999),
+        eps=1e-8,
+        weight_decay=0,
+        amsgrad=False,
+        mask=None,
+        mask_fn_thresh=None,
+        mask_fn_quantile_thresh=None,
+    ):
         super(maskedAdam, self).__init__(params, lr, betas, eps, weight_decay, amsgrad)
         self.mask = mask
         self.mask_fn_thresh = mask_fn_thresh
         self.mask_fn_quantile_thresh = mask_fn_quantile_thresh
         return
 
-    def masked_step(self, mask=None, grad_thresh=None, grad_quantile=None, closure=None):
+    def masked_step(
+        self, mask=None, grad_thresh=None, grad_quantile=None, closure=None
+    ):
         """Only updates selected parameters defined by the mask or gradient threshold."""
         # either mask or grad_thresh must be provided
         # assert mask is not None or grad_thresh is not None, "Either mask or grad_thresh must be provided."
@@ -81,7 +105,9 @@ class maskedAdam(torch.optim.Adam, basic_optimizer):
             mask = mask_fn(
                 self._get_flat_grads(),
                 thresh=self.mask_fn_thresh if grad_thresh is None else grad_thresh,
-                quantile_thresh=self.mask_fn_quantile_thresh if grad_quantile is None else grad_quantile
+                quantile_thresh=self.mask_fn_quantile_thresh
+                if grad_quantile is None
+                else grad_quantile,
             )
 
         # normal step
@@ -95,15 +121,28 @@ class maskedAdam(torch.optim.Adam, basic_optimizer):
 
 
 class maskedSGD(torch.optim.SGD, basic_optimizer):
-    def __init__(self, params, lr=1e-3, momentum=0, dampening=0, weight_decay=0, nesterov=False, mask=None):
-        super(maskedSGD, self).__init__(params, lr, momentum, dampening, weight_decay, nesterov)
+    def __init__(
+        self,
+        params,
+        lr=1e-3,
+        momentum=0,
+        dampening=0,
+        weight_decay=0,
+        nesterov=False,
+        mask=None,
+    ):
+        super(maskedSGD, self).__init__(
+            params, lr, momentum, dampening, weight_decay, nesterov
+        )
         self.mask = mask
         return
 
     def masked_step(self, mask=None, grad_thresh=None, closure=None):
         """Only updates selected parameters defined by the mask or gradient threshold."""
         # either mask or grad_thresh must be provided
-        assert mask is not None or grad_thresh is not None, "Either mask or grad_thresh must be provided."
+        assert mask is not None or grad_thresh is not None, (
+            "Either mask or grad_thresh must be provided."
+        )
 
         # get the pre-step parameters and gradients
         pre_step_params = self._get_flat_params()
@@ -249,17 +288,25 @@ class SEKF(basic_optimizer):
         self._set_flat_params(self.W)
         return
 
-    def load_params(self, path=None):
-        """Loads the SEKF P and Q matrices from a npz file.
-        ARGS:
-            path (str): path to load the parameters from. If None, uses the save_path attribute
-        RETURNS:
-            None
-        """
-        if path is None:
-            assert self.save_path is not None, "Either provide a path when calling `load_params` or set `save_path` when initializing the optimizer"
-            path = self.save_path
-        data = np.load(path)
-        self.P = torch.from_numpy(data["P"])
-        self.Q = torch.from_numpy(data["Q"])
+    def state_dict(self):
+        """Returns the state of the optimizer as a dict."""
+        state = {
+            "R": self.R,
+            "P": self.P,
+            "Q": self.Q,
+            "W": self.W,
+            "mask_fn_thresh": self.mask_fn_thresh,
+            "mask_fn_quantile_thresh": self.mask_fn_quantile_thresh,
+        }
+        return state
+
+    def load_state_dict(self, state_dict):
+        """Loads the optimizer state."""
+        self.R = state_dict["R"]
+        self.P = state_dict["P"]
+        self.Q = state_dict["Q"]
+        self.W = state_dict["W"]
+        self.mask_fn_thresh = state_dict["mask_fn_thresh"]
+        self.mask_fn_quantile_thresh = state_dict["mask_fn_quantile_thresh"]
+        self._set_flat_params(self.W)
         return
