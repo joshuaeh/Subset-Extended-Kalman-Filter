@@ -14,33 +14,38 @@ bytes_dict = {
     "TB": 1024**4,
 }
 
+
 # TODO: Torch/numpy scaler class
 class AbstractNN(torch.nn.Module):
     def __init__(self):
         return super().__init__()
-    
+
     def _init_params(self):
         for m in self.modules():
             if isinstance(m, torch.nn.Linear):
                 torch.nn.init.kaiming_normal_(m.weight)
                 torch.nn.init.zeros_(m.bias)
-    
+
     def functional_call(self, parameters, inputs):
         return torch.func.functional_call(self, parameters, inputs)
-    
+
     def jacrev(self, inputs):
-        return torch.func.jacrev(self.functional_call)(dict(self.named_parameters()), inputs)
-    
+        return torch.func.jacrev(self.functional_call)(
+            dict(self.named_parameters()), inputs
+        )
+
+
 class AbstractRNN(AbstractNN):
     """Instead of each unit recurring, the entire network is recurrent. Outputs of NN are used as states at the next time.
     ARGS:
         inner_module (torch.nn.Module): should take N_states + N_inputs and return N_states
     """
+
     def __init__(self, inner_module):
         super().__init__()
         self.inner_module = inner_module
-        return 
-    
+        return
+
     def forward(self, X0, U):
         """Forward pass of the RNN
         ARGS:
@@ -58,32 +63,35 @@ class AbstractRNN(AbstractNN):
         else:
             assert U.dim() == 3, f"U must be 3D if X0 is 3D, got {U.dim()}"
             _is_batched = True
-        
+
         out = torch.empty(X0.shape[0], U.shape[1], X0.shape[2])
-        
+
         x = X0
         for i in range(U.shape[1]):
             # concatenate the input and state [N_batch, 1, N_states + N_inputs]
-            x_ = torch.cat([x, U[:,i].unsqueeze(1)], dim=-1)
+            x_ = torch.cat([x, U[:, i].unsqueeze(1)], dim=-1)
             x = self.inner_module(x_)
-            out[:,i] = x.squeeze(1)
+            out[:, i] = x.squeeze(1)
         return out.squeeze(0) if not _is_batched else out
+
 
 # RK4 integrator using PyTorch nn module
 class RK4(torch.nn.Module):
     def __init__(self):
         super(RK4, self).__init__()
         return
-    
+
     def forward(self, f, x, u, dt=1):
         k1 = f(x, u)
-        k2 = f(x + 0.5*dt*k1, u)
-        k3 = f(x + 0.5*dt*k2, u)
-        k4 = f(x + dt*k3, u)
-        return x + dt/6*(k1 + 2*k2 + 2*k3 + k4)
+        k2 = f(x + 0.5 * dt * k1, u)
+        k3 = f(x + 0.5 * dt * k2, u)
+        k4 = f(x + dt * k3, u)
+        return x + dt / 6 * (k1 + 2 * k2 + 2 * k3 + k4)
+
 
 class VanillaRNN(AbstractNN):
     """ """
+
     # TODO: assumes 2 hidden layers each of hidden_size, could be generalized
     def __init__(self, state_dim, input_dim, hidden_size):
         super(VanillaRNN, self).__init__()
@@ -91,7 +99,7 @@ class VanillaRNN(AbstractNN):
         self.linear2 = torch.nn.Linear(hidden_size, hidden_size)
         self.linear3 = torch.nn.Linear(hidden_size, state_dim)
         return
-    
+
     def forward(self, x0, u):
         """ARGS:
         x0: initial state (batch_size, context_length, input_dim)
@@ -109,8 +117,10 @@ class VanillaRNN(AbstractNN):
             x_pred[:, i, :] = x.squeeze(1)
         return x_pred
 
+
 class Exogenous_MLP(AbstractNN):
     """ """
+
     def __init__(self, state_dim, input_dim, hidden_size):
         super(Exogenous_MLP, self).__init__()
         self.linear1a = torch.nn.Linear(input_dim, hidden_size)
@@ -118,7 +128,7 @@ class Exogenous_MLP(AbstractNN):
         self.linear2 = torch.nn.Linear(hidden_size, hidden_size)
         self.linear3 = torch.nn.Linear(hidden_size, state_dim)
         return
-    
+
     def forward(self, x, u):
         # xu = torch.cat([x, u], dim=-1)
         xu = torch.sigmoid(self.linear1a(u) + self.linear1b(x))
@@ -126,15 +136,17 @@ class Exogenous_MLP(AbstractNN):
         xu = self.linear3(xu)
         return xu
 
+
 class Exogenous_RkRNN(AbstractNN):
     """ """
+
     # TODO: assumes 2 hidden layers each of hidden_size, could be generalized
     def __init__(self, state_dim, input_dim, hidden_size):
         super(Exogenous_RkRNN, self).__init__()
         self.mlp = Exogenous_MLP(state_dim, input_dim, hidden_size)
         self.rk4 = RK4()
         return
-    
+
     def forward(self, x0, u):
         """ARGS:
         x0: initial state (batch_size, context_length, input_dim)
@@ -150,7 +162,8 @@ class Exogenous_RkRNN(AbstractNN):
             # prediction stored
             x_pred[:, i, :] = x.squeeze(1)
         return x_pred
-    
+
+
 class EarlyStopper:
     # TODO: add model checkpointing
     def __init__(self, patience=1, min_delta=0, true_on_stop=None):
@@ -159,7 +172,7 @@ class EarlyStopper:
         self.patience = patience
         self.min_delta = min_delta
         self.counter = 0
-        self.min_validation_loss = float('inf')
+        self.min_validation_loss = float("inf")
         self.early_stop = False
 
     def step(self, validation_loss):
@@ -169,13 +182,13 @@ class EarlyStopper:
         elif validation_loss > (self.min_validation_loss + self.min_delta):
             self.counter += 1
         return None
-    
+
     def __call__(self):
         if self.true_on_stop:
             return self.counter >= self.patience
         else:
             return self.counter < self.patience
-        
+
 
 def seed_worker(worker_id):
     worker_seed = torch.initial_seed() % 2**32
@@ -184,29 +197,47 @@ def seed_worker(worker_id):
 
 
 def MyCosineAnnealingWarmRestartsWithWarmup(
+    optimizer,
     warmup_start_factor=0.1,
     warmup_end_factor=1.0,
     warmup_duration=10,
     T_0=10,
     T_mult=2,
-    eta_min=0):
+    eta_min=0,
+):
     """ """
-    warmup_lr = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=warmup_start_factor, end_factor=warmup_end_factor, total_iters=warmup_duration)
-    cosine_lr = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=T_0, T_mult=T_mult, eta_min=eta_min)
-    return torch.optim.lr_scheduler.SequentialLR(optimizer, schedulers=[warmup_lr, cosine_lr], milestones=[warmup_duration])
-    
+    warmup_lr = torch.optim.lr_scheduler.LinearLR(
+        optimizer,
+        start_factor=warmup_start_factor,
+        end_factor=warmup_end_factor,
+        total_iters=warmup_duration,
+    )
+    cosine_lr = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+        optimizer, T_0=T_0, T_mult=T_mult, eta_min=eta_min
+    )
+    return torch.optim.lr_scheduler.SequentialLR(
+        optimizer, schedulers=[warmup_lr, cosine_lr], milestones=[warmup_duration]
+    )
+
+
 def init_load_model(model, model_kwargs, model_save_path, device):
     m = model(**model_kwargs)
     m.load_state_dict(torch.load(model_save_path, map_location=device))
     m.to(device)
-    
+
+
 def init_weights(m, nonlinearity=None):
-    """use with module.apply(init_weights)"""
+    """Use with module.apply(init_weights). Allows passing a generator to xavier_normal_."""
     if nonlinearity is None:
         nonlinearity = "Sigmoid"
     if isinstance(m, torch.nn.Linear):
-        torch.nn.init.xavier_normal_(m.weight, gain=torch.nn.init.calculate_gain(nonlinearity))
-        m.bias.data.fill_(0.01)                 
+        torch.nn.init.xavier_normal_(
+            m.weight,
+            gain=torch.nn.init.calculate_gain(nonlinearity),
+            generator=g,
+        )
+        m.bias.data.fill_(0.01)
+
 
 # model interaction functions
 def get_parameter_info(model):
@@ -229,12 +260,16 @@ def get_parameters(model):
 
 def get_parameter_vector(model):
     """Get the parameters of a model as a 1D tensor"""
-    return torch.cat([param.flatten() for name, param in model.named_parameters()]).squeeze()
+    return torch.cat(
+        [param.flatten() for name, param in model.named_parameters()]
+    ).squeeze()
 
 
 def get_parameter_gradient_vector(model):
     """Get the gradients of the parameters of a model as a 1D tensor"""
-    return torch.cat([param.grad.flatten() for name, param in model.named_parameters()]).squeeze()
+    return torch.cat(
+        [param.grad.flatten() for name, param in model.named_parameters()]
+    ).squeeze()
 
 
 def set_parameter_vector(model, parameter_vector):
@@ -273,22 +308,23 @@ def get_selected_parameters(model, parameter_selection, n=None):
         with torch.no_grad():
             raise NotImplementedError("Not implemented yet")
 
-def format_jacobian(jacobian_dict:dict, parameters:dict):
+
+def format_jacobian(jacobian_dict: dict, parameters: dict):
     """Format Jacobian dictionary into a single tensor (n_out, n_params)"""
     j_ = []
-    for k,v in parameters.items():
+    for k, v in parameters.items():
         # reshaping this way ensures that batched/multistream are still organized per parameter
         numel = v.numel()
         j_.append(jacobian_dict[k].reshape(-1, numel))
     return torch.cat(j_, dim=1)
-        
+
+
 # TODO does this need to be wrapped in a torch.no_grad()?
 # TODO batched jacobian calculation
 @torch.no_grad()
-def get_jacobian(model:torch.nn.Module,
-    inputs:tuple,
-    wrt="parameters",
-    jac_mode=jacrev):
+def get_jacobian(
+    model: torch.nn.Module, inputs: tuple, wrt="parameters", jac_mode=jacrev
+):
     # TODO: refactor for batched inputs
     """
     Get the jacobian of a model with respect to the parameters or inputs.
@@ -301,15 +337,19 @@ def get_jacobian(model:torch.nn.Module,
         jacobian: dict with keys as the parameter names and values as the jacobian for that parameter dy(row)/dx(col)"""
     # TODO: automatically select between jacrev and jacfwd based in n_inputs and n_outputs.
     #     forward will be faster for n_inputs << n_outputs, reverse when n_outputs << n_inputs
-    assert jac_mode in [jacrev, jacfwd], f"jac_mode must be `jacrev` or `jacfwd`, got {jac_mode}"
-    assert wrt in ["parameters", "inputs"], f"wrt must be 'parameters' or 'inputs', got {wrt}"
+    assert jac_mode in [jacrev, jacfwd], (
+        f"jac_mode must be `jacrev` or `jacfwd`, got {jac_mode}"
+    )
+    assert wrt in ["parameters", "inputs"], (
+        f"wrt must be 'parameters' or 'inputs', got {wrt}"
+    )
     if wrt == "parameters":
         f = lambda parameters, inputs: functional_call(model, parameters, inputs)
         jac_dict = jac_mode(f)(dict(model.named_parameters()), inputs)
     else:
         jac_dict = jac_mode(model)(inputs)
     return format_jacobian(jac_dict, dict(model.named_parameters()))
-    
+
 
 def get_torch_model_size(model, units="mb"):
     """ """
@@ -324,12 +364,14 @@ def get_torch_model_size(model, units="mb"):
     size_all = (param_size + buffer_size) / num_bytes
     print(f"model size: {size_all:.3f}{units.upper()}")
     return size_all
-    
+
+
 def init_weights(m):
     if type(m) == torch.nn.Linear:
         torch.nn.init.kaiming_normal_(m.weight)
         m.bias.data.fill_(0.01)
     return
+
 
 def train_epoch(model, dataloader, optimizer, criterion, device=None):
     model.train()
@@ -337,7 +379,11 @@ def train_epoch(model, dataloader, optimizer, criterion, device=None):
     for i, data in enumerate(dataloader):
         optimizer.zero_grad()
         if device is not None:
-            X0, U, X1 = data["X0"].to(device), data["U"].to(device), data["X1"].to(device)
+            X0, U, X1 = (
+                data["X0"].to(device),
+                data["U"].to(device),
+                data["X1"].to(device),
+            )
         else:
             X0, U, X1 = data["X0"], data["U"], data["X1"]
         X_pred = model(X0, U)
@@ -347,19 +393,25 @@ def train_epoch(model, dataloader, optimizer, criterion, device=None):
         running_loss += loss.item()
     return running_loss / len(dataloader)
 
+
 def val_epoch(model, dataloader, criterion, device=None):
     model.eval()
     running_loss = 0
     with torch.no_grad():
         for i, data in enumerate(dataloader):
             if device is not None:
-                X0, U, X1 = data["X0"].to(device), data["U"].to(device), data["X1"].to(device)
+                X0, U, X1 = (
+                    data["X0"].to(device),
+                    data["U"].to(device),
+                    data["X1"].to(device),
+                )
             else:
                 X0, U, X1 = data["X0"], data["U"], data["X1"]
             X_pred = model(X0, U)
             loss = criterion(X_pred, X1)
             running_loss += loss.item()
     return running_loss / len(dataloader)
+
 
 def mask_fn(grads, thresh=None, quantile_thresh=None):
     if thresh is not None:
@@ -369,13 +421,20 @@ def mask_fn(grads, thresh=None, quantile_thresh=None):
     else:
         return torch.ones_like(grads, dtype=torch.bool)
 
-def kf_train_epoch(model, dataloader, optimizer, criterion, mask_fn=mask_fn, device=None):
+
+def kf_train_epoch(
+    model, dataloader, optimizer, criterion, mask_fn=mask_fn, device=None
+):
     model.train()
     running_loss = []
     for i, data in enumerate(dataloader):
         optimizer.zero_grad()
         if device is not None:
-            X0, U, X1 = data["X0"].to(device), data["U"].to(device), data["X1"].to(device)
+            X0, U, X1 = (
+                data["X0"].to(device),
+                data["U"].to(device),
+                data["X1"].to(device),
+            )
         else:
             X0, U, X1 = data["X0"], data["U"], data["X1"]
         with torch.no_grad():
@@ -388,7 +447,8 @@ def kf_train_epoch(model, dataloader, optimizer, criterion, mask_fn=mask_fn, dev
         mask = mask_fn(grads)
         optimizer.step(innovation, j, mask)
         running_loss.append(loss.item())
-    return running_loss 
+    return running_loss
+
 
 def kf_val_epoch(model, dataloader, criterion, mask_fn=torch.ones_like, device=None):
     model.eval()
@@ -396,7 +456,11 @@ def kf_val_epoch(model, dataloader, criterion, mask_fn=torch.ones_like, device=N
     with torch.no_grad():
         for i, data in enumerate(dataloader):
             if device is not None:
-                X0, U, X1 = data["X0"].to(device), data["U"].to(device), data["X1"].to(device)
+                X0, U, X1 = (
+                    data["X0"].to(device),
+                    data["U"].to(device),
+                    data["X1"].to(device),
+                )
             else:
                 X0, U, X1 = data["X0"], data["U"], data["X1"]
             X_pred = model(X0, U)
@@ -404,6 +468,8 @@ def kf_val_epoch(model, dataloader, criterion, mask_fn=torch.ones_like, device=N
             loss = criterion(X_pred, X1)
             running_loss.append(loss.item())
     return running_loss / len(dataloader)
+
+
 def cosine_similarity(a, b):
     """computes row-wise cosine similarity."""
     assert a.ndim == b.ndim
