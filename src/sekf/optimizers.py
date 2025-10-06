@@ -135,54 +135,54 @@ class SEKF(basic_optimizer):
         q (float, optional): process noise (default: 1e-1) P&F recommend 0 for no noise up to 0.1. Generally annealed from large value to value on the order of 1e-6. This annealing helps convergence and by keeping non-zero helps avoid divergence of error covariance update
         p0 (float, optional): initial covariance matrix diagonal values (default: 1e-1)  P&F recommend 100 for sigmoid and 1,000 for linear activations
     """
-    # TODO: state_dict for saving and loading optimizer state (including P and Q matrices), lr, etc. 
+
+    # TODO: state_dict for saving and loading optimizer state (including P and Q matrices), lr, etc.
     def __init__(
         self,
         params,
-        lr: float = 1e-3,  # initial learning rate
-        q: float = 1e-1,  # process noise
+        R: float = 1,  # Measurement noise
         p0: float = 100,  # initial error covariance
+        q: float = 1e-1,  # process noise
         mask_fn_thresh=None,
         mask_fn_quantile_thresh=None,
-        save_path=None
     ):
-        if not 0.0 <= lr:
-            raise ValueError(f"Invalid learning rate: {lr}")
-        self.mask_fn = lambda x: mask_fn(x, thresh=mask_fn_thresh, quantile_thresh=mask_fn_quantile_thresh)
-        self.learning_rate = lr
+        # todo check the inputs
+
         defaults = dict(
-            lr=lr,
+            R=R,
             q=q,
-            p0=p0
+            p0=p0,
+            mask_fn_thresh=mask_fn_thresh,
+            mask_fn_quantile_thresh=mask_fn_quantile_thresh,
         )
         # defaults = dict()
         # super(SEKF, self).__init__(params, defaults)
         super().__init__(params, defaults)
-        self._init_SEKF(p0, q)
-        self.save_path = save_path
-        if self.save_path is not None:
-            if os.path.exists(self.save_path):
-                logger.debug(f"Loading SEKF parameters from {self.save_path}")
-                self.load_params(self.save_path)
-            else:
-                logger.debug(f"{self.save_path} does not exist, initializing SEKF parameters")
-                self.save_params(self.save_path)
+        self._init_SEKF(R, p0, q, mask_fn_thresh, mask_fn_quantile_thresh)
         return
 
-    def _init_SEKF(self, p0, q):
+    def _init_SEKF(self, R, p0, q, mask_fn_thresh, mask_fn_quantile_thresh):
         """Initialize the SEKF P, Q matrices."""
-        self.n_param_elements = sum(sum(p.numel() for p in param_group["params"]) for param_group in self.param_groups)
+        self.n_param_elements = sum(
+            sum(p.numel() for p in param_group["params"])
+            for param_group in self.param_groups
+        )
+        # R must be a scalar, a 1-element tensor, 1-D tensor with as many elements as NN outputs, or a 2-D tensor with shape (N_out, N_out)
+        self.R = R
         self.P = torch.eye(self.n_param_elements) * p0
         self.Q = torch.eye(self.n_param_elements) * q
         self.W = self._get_flat_params()
+        self.mask_fn_thresh = mask_fn_thresh
+        self.mask_fn_quantile_thresh = mask_fn_quantile_thresh
         return
 
     @torch.no_grad()
-    def step(self, e, J, mask=None, verbose=False):
+    def step(self, e, J, R=None, mask=None):
         """Performs a single optimization step.
         ARGS:
             e (torch.Tensor): (N_out) (N_out*N_stream) innovation, y_true - y_pred
-            J (torch.Tensor): (N_out, N_params) (N_out*N_stream, N_params) Jacobian dy/dW change in *output* wrt parameters
+            J (torch.Tensor): (N_params, N_out)(N_params, N_out*N_stream) Jacobian dy/dW change in *output* wrt parameters
+            R (torch.Tensor): (N_out, N_out) measurement noise covariance matrix, or None to use diagonal matrix with self.R on the diagonal
             mask (torch.Tensor): (N_params) mask of which parameters to update
             verbose: (bool) whether to return additional information
         Returns:
@@ -197,14 +197,31 @@ class SEKF(basic_optimizer):
         """
         # parse inputs and initialize matricies
         if mask is None:
-            mask = torch.ones(J.shape[1], dtype=torch.bool)
+            if self.mask_fn_thresh is not None:
+                mask = mask_fn(
+                    self._get_flat_grads(),
+                    thresh=self.mask_fn_thresh,
+                )
+            elif self.mask_fn_quantile_thresh is not None:
+                mask = mask_fn(
+                    self._get_flat_grads(),
+                    quantile_thresh=self.mask_fn_quantile_thresh,
+                )
+            else:
+                mask = torch.ones(J.shape[1], dtype=torch.bool)
         else:
             assert mask.shape == (J.shape[1],), (
                 f"Mask must have the same number of elements as the number of parameters, received {mask.shape[0]} expected {J.shape[1]}"
             )
+        if R is None:
+            R = torch.eye(J.shape[0]) * self.R
+        else:
+            assert R.shape == (J.shape[0], J.shape[0]), (
+                f"R must have shape ({J.shape[0]}, {J.shape[0]}), received {R.shape}"
+            )
         e = e.reshape(-1, 1)  # (N_out * N_stream, 1) innovation column vector
 
-        A0 = torch.eye(J.shape[0]) / self.learning_rate + J[:, mask] @ self.P[mask][:, mask] @ J[:, mask].T
+        A0 = R + J[:, mask] @ self.P[mask][:, mask] @ J[:, mask].T
         A = torch.linalg.solve(A0, torch.eye(J.shape[0]))
         # A = torch.linalg.inv(
         #     # learning rate injects uniform addition to main diagonal
@@ -217,64 +234,19 @@ class SEKF(basic_optimizer):
         self.W[mask] = self.W[mask] + self.dW
         # self.P[mask][:,mask] = self.P[mask][:,mask] + self.dP
         # self.P[mask][:,mask] = (torch.eye(self.n_param_elements)[mask][:,mask] - self.K @ J[:,mask]) @ self.P[mask][:,mask] + self.dP
-        subset_P = (torch.eye(sum(mask)) - self.K @ J[:, mask]) @ self.P[mask][:, mask] + self.Q[mask][:, mask]
+        # subset_P = (torch.eye(sum(mask)) - self.K @ J[:, mask]) @ self.P[mask][:, mask] @ (
+        #     torch.eye(sum(mask)) - self.K @ J[:, mask]
+        # ).T + self.Q[mask][:, mask]
+        subset_P = (
+            (torch.eye(sum(mask)) - self.K @ J[:, mask])
+            @ self.P[mask][:, mask]
+            @ (torch.eye(sum(mask)) - self.K @ J[:, mask]).T
+            + self.K @ R @ self.K.T
+            + self.Q[mask][:, mask]
+        )
         mask_2d = mask.unsqueeze(0) & mask.unsqueeze(1)
         self.P.index_put_(torch.where(mask_2d), subset_P.flatten())
         self._set_flat_params(self.W)
-        if verbose:
-            return {
-                "e": e,
-                "J": J,
-                "A": A,
-                "K": self.K,
-                "W": self.W,
-                "P": self.P,
-            }
-        else:
-            return
-
-    def easy_step(self, model, x_true, y_true, loss_fn, mask_fn=None, mask=None, verbose=False):
-        """
-        Utility method to perform prediction, compute loss, calculate jacobian and mask, and SEKF step.
-        ARGS:
-            model (torch.nn.Module): model to optimize
-            x_true (tuple(torch.Tensor)): input to the model
-                NOTE: x_true must be a tuple of tensors, even if there is only one input to handle multi-input settings. Could change this in the future.
-            y_true (torch.Tensor): target output 
-            loss_fn (callable): loss function to compute the loss
-            mask_fn (callable): function to compute the mask from the gradients. If not declated, or declared in initialization, assumes no mask
-            mask (torch.Tensor): mask to use for the SEKF step. If not provided, will be computed from the gradients
-            verbose (bool): whether to return additional information
-        RETURNS:
-            y_pred (torch.Tensor): predicted output
-            step_info (dict, None): additional information if verbose=True, otherwise None
-        """
-        # TODO: Need better way to handle multi-input models, this is squashing the inputs when input-dim is one
-        self.zero_grad()  # clear previous gradients
-        y_pred = model(*x_true)
-        e = y_true - y_pred
-        loss = loss_fn(y_pred, y_true)
-        loss.backward()
-        grad_loss = self._get_flat_grads()
-        J = get_jacobian(model, x_true)
-        if mask is None:
-            if mask_fn is None:
-                mask = self.mask_fn(grad_loss)
-            else:
-                mask = mask_fn(grad_loss)
-        return y_pred, self.step(e, J, mask=mask, verbose=verbose)
-
-    def save_params(self, path=None):
-        """Saves the SEKF P and Q matrices to a npz file.
-        ARGS:
-            path (str): path to save the parameters to. If None, uses the save_path attribute
-        RETURNS:
-            None
-        """
-        if path is None:
-            assert self.save_path is not None, "Either provide a path when calling `save_params` or set `save_path` when initializing the optimizer"
-            path = self.save_path
-        np.savez(path, P=self.P.numpy(), Q=self.Q.numpy())
         return
 
     def load_params(self, path=None):
