@@ -1,6 +1,10 @@
+import numpy as np
 import torch
 from torch.func import functional_call, jacrev, jacfwd
 
+# constants
+g = torch.Generator()
+g.manual_seed(42)
 
 bytes_dict = {
     "B": 1,
@@ -173,7 +177,13 @@ class EarlyStopper:
             return self.counter < self.patience
         
 
-def MyCosineAnnealingWarmRestartsWithWarmup(optimizer,
+def seed_worker(worker_id):
+    worker_seed = torch.initial_seed() % 2**32
+    np.random.seed(worker_seed)
+    # random.seed(worker_seed)
+
+
+def MyCosineAnnealingWarmRestartsWithWarmup(
     warmup_start_factor=0.1,
     warmup_end_factor=1.0,
     warmup_duration=10,
