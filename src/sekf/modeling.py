@@ -404,3 +404,12 @@ def kf_val_epoch(model, dataloader, criterion, mask_fn=torch.ones_like, device=N
             loss = criterion(X_pred, X1)
             running_loss.append(loss.item())
     return running_loss / len(dataloader)
+def cosine_similarity(a, b):
+    """computes row-wise cosine similarity."""
+    assert a.ndim == b.ndim
+    if a.ndim == 1:
+        return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
+    if a.ndim == 2:
+        return np.einsum("ij,ij->i", a, b) / (
+            np.linalg.norm(a, axis=1) * np.linalg.norm(b, axis=1)
+        )
