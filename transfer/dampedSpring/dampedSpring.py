@@ -1,79 +1,83 @@
-""""""
-##########https://update.code.visualstudio.com/1.101.1/cli-linux-x64/stable
-# TODO ###
-##########
-# checkpoint last model -> trainable class, also set frequency to just last or infrequently
-# get the model to save the weights of the best, delete others
-# same summary stats
+# Damped Spring Model utility functions and constants
 
-#############################
-########## Imports ##########
-#############################
+# TODO:
+
+##### Imports
 import os
+from pathlib import Path
 import shutil
+import zipfile
 
-from dtaidistance import dtw
-import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
-import ray
-from ray import tune
-from ray.tune.schedulers import ASHAScheduler
-from ray.tune.stopper import CombinedStopper, ExperimentPlateauStopper, TrialPlateauStopper
-from scipy.integrate import solve_ivp
-import tempfile
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from tqdm.autonotebook import tqdm
+from ray import tune
+from ray.tune.schedulers import ASHAScheduler
+from ray.tune.stopper import TrialPlateauStopper
+from scipy.integrate import solve_ivp
+from sekf.modeling import (
+    cosine_similarity,
+    get_jacobian,
+    get_parameter_vector,
+    init_weights,
+    seed_worker,
+)
+from sekf.optimizers import SEKF, maskedAdam
+from tqdm import tqdm
 
-from sekf.modeling import init_weights, get_jacobian
-from sekf.optimizers import maskedAdam, SEKF
+##### Constants
+os.environ["TUNE_WARN_EXCESSIVE_EXPERIMENT_CHECKPOINT_SYNC_THRESHOLD_S"] = "0"
 
-########## Config ##########
+torch.manual_seed(42)
+np.random.seed(42)
+g = torch.Generator()
+g.manual_seed(42)
 
-# Randomly sample initial conditions for training and testing
-N_TRAIN = 100_000
-N_VALIDATION = 10_000
-N_TEST = 10_000
-N_TRANSFER = 1000
-N_TRANSFER_VALIDATION = 1000
-N_TRANSFER_TOTAL = 100_000
+RAY_STORAGE_PATH = ""
 
-MEASUREMENT_NOISE_PM = 0.1
-
-CASE_DIR = os.path.dirname(os.path.abspath(__file__))
+EXPERIMENT_DIR = Path(__file__).parent
+DATA_DIR = EXPERIMENT_DIR.joinpath("data")
+# DATA_DIR.mkdir(parents=True, exist_ok=True)
+RESULTS_DIR = EXPERIMENT_DIR.joinpath("results")
+# RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 MODEL_FILENAME = "model_weights.pth"
-OPTIMIZER_STATE_SEKF = "sekf_optimizer_state.npz"
-DATA_DIR = os.path.join(CASE_DIR, "data")
-os.makedirs(DATA_DIR, exist_ok=True)
-MODEL0_WEIGHTS_PATH = os.path.join(DATA_DIR, MODEL_FILENAME)
-TRAINING_DATA_FILENAME = "training_data.npz"
-TRAINING_METRICS_FILENAME = "training_metrics.csv"
-TRANSFER_DIR = os.path.join(DATA_DIR, "transfer")
-os.makedirs(TRANSFER_DIR, exist_ok=True)
-RESULTS_DIRS = {
-    "training": DATA_DIR,
-    "transfer_finetuning": os.path.join(DATA_DIR, "transfer_finetuning"),
-    "transfer_finetuning_SEKF": os.path.join(DATA_DIR, "transfer_finetuning_SEKF"),
-    "transfer_retraining": os.path.join(DATA_DIR, "transfer_retraining"),
-}
+OPTIMIZER_FILENAME = "optimizer_state.pth"
+# SEKF_FILENAME = "sekf_optimizer_state.npz"
+MODEL0_WEIGHTS_PATH = RESULTS_DIR.joinpath("training", MODEL_FILENAME)
+TRAINING_DATA_PATH = DATA_DIR.joinpath("training_data.npz")
+TRANSFER_DATA_PATH = DATA_DIR.joinpath("transfer_data.npz")
 ALL_TRIALS_BASE_FILENAME = "allTrials_metrics.csv"
 BEST_RESULT_BASE_FILENAME = "bestResult_metrics.csv"
 
 
-SCENARIOS = [
-    {"m":1.1},
-    {"m":0.9},
-    {"c":0.55},
-    {"c":0.45},
-    {"k":1.1},
-    {"k":0.9},
-    {"u":1.0},
-    {"u":-1.0},
-    ]
+N_SOURCE_TRAIN = 80_000
+N_SOURCE_VALIDATION = 10_000
+N_SOURCE_TEST = 10_000
+N_SOURCE_TOTAL = N_SOURCE_TRAIN + N_SOURCE_VALIDATION + N_SOURCE_TEST
+N_TARGET_TOTAL = 110_000
 
-# configs to change
+MEASUREMENT_NOISE_STD = 0.1
+
+INIT_METHODS = ["retrain", "finetune", "noMaintenance"]
+OPTIMIZERS = {
+    "adam": maskedAdam,
+    "sekf": SEKF,
+    "bfgs": torch.optim.LBFGS,
+}
+SCENARIOS = [
+    {"m": 1.1},
+    {"m": 0.9},
+    {"c": 0.55},
+    {"c": 0.45},
+    {"k": 1.1},
+    {"k": 0.9},
+    {"u": 1.0},
+    {"u": -1.0},
+]
+TARGET_DATA_DIM = [10, 50, 100, 500, 1000]
+N_ITERATIONS = 10
+
 
 N_CPUS = 4
 N_HYPERPARAMETER_TRIALS = 50
@@ -83,6 +87,7 @@ N_HYPERPARAMETER_TRIALS = 50
 
 rng = np.random.default_rng(42)
 
+
 # Define the MLP model
 class MLP(nn.Module):
     def __init__(self):
@@ -91,6 +96,7 @@ class MLP(nn.Module):
         self.fc2 = nn.Linear(32, 32)
         self.fc3 = nn.Linear(32, 32)
         self.fc4 = nn.Linear(32, 20)
+
     def forward(self, x):
         x = self.fc1(x)
         x = nn.Sigmoid()(x)
@@ -101,6 +107,7 @@ class MLP(nn.Module):
         x = self.fc4(x)
         return x
 
+
 default_config = {
     "batch_size": 64,
     "initialize_weights": "random",  # or "finetune"
@@ -108,12 +115,34 @@ default_config = {
     "lr_patience": 20,
     "lr_factor": 0.5,
     "max_epochs": 1000,
-    "mask_fn_quantile_thresh": 0.0,
-    "optimizer": "adam",
-    "sekf_q": 0.1,
-    "sekf_p0": 100.0,
-    "sekf_save_path": None,  
+    "mask_fn_quantile_thresh": None,
+    "log_frequency": None,
 }
+
+default_config_SEKF = {
+    "batch_size": 1,
+    "initialize_weights": "finetune",  # or "random"
+    "max_epochs": 1000,
+    "mask_fn_quantile_thresh": None,
+    "R": 0.1,
+    "Q": 0.1,
+    "p0": 100.0,
+    "log_frequency": None,
+}
+
+
+default_config_LBFGS = {
+    "batch_size": 1,
+    "initialize_weights": "finetune",  # or "random"
+    "max_epochs": 1000,
+    "lr": 1.0,
+    "lr_max_iter": 20,
+    "lr_history_size": 10,
+    "lr_patience": 20,
+    "lr_factor": 0.5,
+    "log_frequency": None,
+}
+
 
 class DampedSpringTrainer(tune.Trainable):
     """Trainer for the Damped Spring model using Ray Tune.
@@ -129,25 +158,23 @@ class DampedSpringTrainer(tune.Trainable):
         - "sekf_q": Parameter q for the SEKF optimizer.
         - "sekf_p0": Initial value for the SEKF optimizer.
         - "sekf_save_path": Path to save the SEKF optimizer state.
-        
+
     data (dict): Dictionary containing training, validation, and test data.
-    
+
     """
-    
+
     def setup(self, config, data):
-        self.config = default_config | config
+        self._set_config(config)
         self._init_model(self.config)
         self._init_optimizer(self.config)
         self.loss_fn = nn.MSELoss()
-        self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, 'min', patience=self.config.get("lr_patience"), factor=self.config.get("lr_factor"))
-        self.train_dataloader = torch.utils.data.DataLoader(
-            torch.utils.data.TensorDataset(data["train_x"], data["train_y"]),
-            batch_size=self.config["batch_size"],
-            shuffle=True,
-        )
-        self.initial_weights = self.optimizer._get_flat_params().detach().numpy()
-        self.data = data
-        
+        self.scheduler = self._scheduler(self.config)
+        self._setup(config, data)
+
+    def _set_config(self, config):
+        self.config = default_config | config
+        return
+
     def _init_model(self, config):
         self.model = MLP()
         match config.get("initialize_weights"):
@@ -157,41 +184,177 @@ class DampedSpringTrainer(tune.Trainable):
                 # load pre-trained weights
                 weights_dict = torch.load(MODEL0_WEIGHTS_PATH, weights_only=True)
                 self.model.load_state_dict(weights_dict)
-                
+
     def _init_optimizer(self, config):
-        match config.get("optimizer"):
-            case "adam":
-                self.optimizer = maskedAdam(
-                    self.model.parameters(),
-                    lr=config.get("lr"),
-                    mask_fn_quantile_thresh=config.get("mask_fn_quantile_thresh", 1.0),
-                )
-                
-            case "sekf":
-                self.optimizer = SEKF(
-                    self.model.parameters(),
-                    lr=config.get("lr"),
-                    q=config.get("sekf_q", 0.1),
-                    p0=config.get("sekf_p0", 100),
-                    mask_fn_quantile_thresh=config.get("mask_fn_quantile_thresh", 1.0),
-                    save_path=config.get("sekf_save_path", None),
-                    
-                )
-        
-    def _maskedAdam_step(self, x_batch, y_batch):
+        self.optimizer = maskedAdam(
+            self.model.parameters(),
+            lr=config.get("lr"),
+            mask_fn_quantile_thresh=config.get("mask_fn_quantile_thresh", 1.0),
+        )
+
+    def _scheduler(self, config):
+        return optim.lr_scheduler.ReduceLROnPlateau(
+            self.optimizer,
+            "min",
+            patience=self.config.get("lr_patience"),
+            factor=self.config.get("lr_factor"),
+        )
+
+    def _setup(self, config, data):
+        """The portion that is common to all optimizers."""
+        self.train_dataloader = torch.utils.data.DataLoader(
+            torch.utils.data.TensorDataset(data["train_x"], data["train_y"]),
+            batch_size=self.config["batch_size"],
+            shuffle=True,
+            # num_workers=1,
+            # persistent_workers=True,
+            worker_init_fn=seed_worker,
+            generator=g,
+        )
+        self.train_dataloader_iter = iter(self.train_dataloader)
+        self.initial_weights = get_parameter_vector(self.model).detach().numpy()
+        self.data = data
+        self.train_steps = 0
+        self.batches_per_epoch = len(self.train_dataloader)
+        self.total_batches = 0
+        self.total_epochs = 0
+
+    def _optimizer_step(self, x_batch, y_batch):
         """Performs a single step of the masked Adam optimizer."""
         self.optimizer.zero_grad()
         y_pred = self.model(x_batch)
+
         loss = self.loss_fn(y_pred, y_batch)
+        # end experiment if loss is nan
+        if torch.isnan(y_pred).any():
+            self.reset()
         loss.backward()
         self.optimizer.masked_step()
-        
-    def _sekf_step(self, x_batch, y_batch):
+
+    def eval(self, data):
+        self.model.eval()
+        with torch.no_grad():
+            metrics = {
+                "train_loss": self.loss_fn(
+                    self.model(data["train_x"]), data["train_y"]
+                ).item(),
+                "val_loss": self.loss_fn(
+                    self.model(data["val_x"]), data["val_y"]
+                ).item(),
+                "test_loss": self.loss_fn(
+                    self.model(data["test_x"]), data["test_y"]
+                ).item(),
+                "cosine_similarity_weights": cosine_similarity(
+                    self.initial_weights,
+                    get_parameter_vector(self.model).detach().numpy(),
+                ),
+                "lr": self.scheduler.get_last_lr()[0],
+            }
+        self.scheduler.step(metrics["val_loss"])
+        return metrics
+
+    def _next_batch(self):
+        try:
+            x_batch, y_batch = next(self.train_dataloader_iter)
+        except StopIteration:
+            self.train_dataloader_iter = iter(self.train_dataloader)
+            x_batch, y_batch = next(self.train_dataloader_iter)
+        return x_batch, y_batch
+
+    def step(self):
+        self.model.train()
+        step_len = self.config.get("log_frequency", None)
+        if step_len is None:
+            step_len = self.batches_per_epoch
+        for _ in range(step_len):
+            x_batch, y_batch = self._next_batch()
+            self._optimizer_step(x_batch, y_batch)
+            # self.total_batches += 1
+        metrics = self.eval(self.data)
+        self.total_batches += step_len
+        self.scheduler.step(metrics["val_loss"])
+        metrics.update(
+            {
+                "total_batches": self.total_batches,
+                "total_epochs": self.total_batches // self.batches_per_epoch,
+            }
+        )
+        return metrics
+
+    def save_optimizer_state(self, tmp_checkpoint_dir):
+        """Saves the state of the optimizer."""
+        torch.save(
+            self.optimizer.state_dict(),
+            Path(tmp_checkpoint_dir).joinpath(OPTIMIZER_FILENAME),
+        )
+        return
+
+    def load_optimizer_state(self, tmp_checkpoint_dir):
+        """Loads the state of the optimizer."""
+        self.optimizer.load_state_dict(
+            Path(tmp_checkpoint_dir).joinpath(OPTIMIZER_FILENAME)
+        )
+        return
+
+    def save_checkpoint(self, tmp_checkpoint_dir):
+        checkpoint_path = os.path.join(tmp_checkpoint_dir, MODEL_FILENAME)
+        torch.save(self.model.state_dict(), checkpoint_path)
+        # Save optimizer state if needed
+        self.save_optimizer_state(tmp_checkpoint_dir)
+        return tmp_checkpoint_dir
+
+    def load_checkpoint(self, tmp_checkpoint_dir):
+        checkpoint_path = os.path.join(tmp_checkpoint_dir, MODEL_FILENAME)
+        self.model.load_state_dict(torch.load(checkpoint_path))
+        self.load_optimizer_state(tmp_checkpoint_dir)
+        return
+
+    def reset_config(self, new_config):
+        """Reset the configuration of the trainer."""
+        self.setup(new_config, self.data)
+        return True
+
+    def cleanup(self):
+        """Cleanup resources."""
+        # No specific cleanup needed for this trainer
+        self.save()
+
+
+class DampedSpringTrainer_SEKF(DampedSpringTrainer):
+    """Trainer for SEKF specifically."""
+
+    def _set_config(self, config):
+        self.config = default_config_SEKF | config
+        return
+
+    def _init_optimizer(self, config):
+        self.optimizer = SEKF(
+            self.model.parameters(),
+            R=config.get("R"),
+            p0=config.get("p0", 100),
+            q=config.get("Q"),
+            mask_fn_quantile_thresh=config.get("mask_fn_quantile_thresh", 0.0),
+        )
+
+    def _scheduler(self, config):
+        return SEKF_scheduler(self.optimizer)
+
+    def setup(self, config, data):
+        self._set_config(config)
+        self._init_model(self.config)
+        self._init_optimizer(self.config)
+        self.loss_fn = nn.MSELoss()
+        self.scheduler = self._scheduler(self.config)
+        self._setup(config, data)
+
+    def _optimizer_step(self, x_batch, y_batch):
         """Performs a single step of the SEKF optimizer."""
         y_pred = self.model(x_batch)
         e = y_batch - y_pred
-        
-        if self.config.get("mask_fn_quantile_thresh",0.0) > 0.0:
+        if torch.isnan(e).any():
+            self.reset()
+
+        if self.config.get("mask_fn_quantile_thresh", None) is not None:
             loss = self.loss_fn(y_pred, y_batch)
             loss.backward()
             grad_loss = self.optimizer._get_flat_grads()
@@ -200,93 +363,94 @@ class DampedSpringTrainer(tune.Trainable):
             mask = None
         J = get_jacobian(self.model, (x_batch))
         self.optimizer.step(e, J, mask=mask)
-        
-        
-        
+
+
+class DampedSpringTrainer_LBFGS(DampedSpringTrainer):
+    """Trainer for LBFGS specifically."""
+
+    def _set_config(self, config):
+        self.config = default_config_LBFGS | config
+        return
+
+    def _init_optimizer(self, config):
+        self.optimizer = optim.LBFGS(
+            self.model.parameters(),
+            lr=config.get("lr", 1.0),
+            max_iter=config.get("lr_max_iter", 20),
+            history_size=config.get("lr_history_size", 10),
+        )
+
+    def _scheduler(self, config):
+        return optim.lr_scheduler.ReduceLROnPlateau(
+            self.optimizer,
+            "min",
+            patience=self.config.get("lr_patience"),
+            factor=self.config.get("lr_factor"),
+        )
+
+    def setup(self, config, data):
+        self._set_config(config)
+        self._init_model(self.config)
+        self._init_optimizer(self.config)
+        self.loss_fn = nn.MSELoss()
+        self.scheduler = self._scheduler(self.config)
+        self._setup(config, data)
+
     def _optimizer_step(self, x_batch, y_batch):
-        match self.config.get("optimizer"):
-            case "adam":
-                self._maskedAdam_step(x_batch, y_batch)
-            case "sekf":
-                self._sekf_step(x_batch, y_batch)
-        
-    def eval(self, data):
-        self.model.eval()
-        with torch.no_grad():
-            metrics = {
-                "train_loss": self.loss_fn(self.model(data["train_x"]), data["train_y"]).item(),
-                "val_loss": self.loss_fn(self.model(data["val_x"]), data["val_y"]).item(),
-                "test_loss": self.loss_fn(self.model(data["test_x"]), data["test_y"]).item(),
-                "cosine_similarity_weights": cosine_similarity(self.initial_weights, self.optimizer._get_flat_params().detach().numpy()),
-                "lr": self.scheduler.get_last_lr()[0],
-            }
-        self.scheduler.step(metrics["val_loss"])
-        return metrics
-        
+        """Performs a single step of the LBFGS optimizer."""
 
-    def step(self):
-        self.model.train()
-        for x_batch, y_batch in self.train_dataloader:
-            self._optimizer_step(x_batch, y_batch)
+        def closure():
+            self.optimizer.zero_grad()
+            y_pred = self.model(x_batch)
+            loss = self.loss_fn(y_pred, y_batch)
+            if torch.isnan(loss).any():
+                self.reset()
+            loss.backward()
+            return loss
 
-        metrics = self.eval(self.data)
-        self.scheduler.step(metrics["val_loss"])
-        return metrics
+        self.optimizer.step(closure)
 
-    def save_optimizer_state(self, tmp_checkpoint_dir):
-        """"""
-        match self.config.get("optimizer"):
-            case "adam":
-                pass
-            case "sekf":
-                self.optimizer.save_params(path=os.path.join(tmp_checkpoint_dir, OPTIMIZER_STATE_SEKF))
-        return
-    
-    def load_optimizer_state(self, tmp_checkpoint_dir):
-        """Loads the state of the optimizer."""
-        match self.config.get("optimizer"):
-            case "adam":
-                pass
-            case "sekf":
-                self.optimizer.load_params(path=os.path.join(tmp_checkpoint_dir, OPTIMIZER_STATE_SEKF))
-        return
-    
-    def save_checkpoint(self, tmp_checkpoint_dir, model_fname=MODEL_FILENAME):
-        checkpoint_path = os.path.join(tmp_checkpoint_dir, model_fname)
-        torch.save(self.model.state_dict(), checkpoint_path)
-        # Save optimizer state if needed
-        self.save_optimizer_state(tmp_checkpoint_dir)
-        return tmp_checkpoint_dir
-    
-    def load_checkpoint(self, tmp_checkpoint_dir, model_fname=MODEL_FILENAME):
-        checkpoint_path = os.path.join(tmp_checkpoint_dir, model_fname)
-        self.model.load_state_dict(torch.load(checkpoint_path))
-        self.load_optimizer_state(tmp_checkpoint_dir)
-        return 
-    
-    def reset_config(self, new_config):
-        """Reset the configuration of the trainer."""
-        self.setup(new_config, self.data)
-        return True
-    
-    def cleanup(self):
-        """Cleanup resources."""
-        # No specific cleanup needed for this trainer
-        self.save()
-        
+
+class SEKF_scheduler:
+    def __init__(self, optimizer):
+        self.optimizer = optimizer
+        self.lowest_val_loss = float("inf")
+        self.patience_counter = 0
+
+    def step(self, val_loss):
+        if val_loss < self.lowest_val_loss:
+            self.lowest_val_loss = val_loss
+            self.patience_counter = 0
+        else:
+            self.patience_counter += 1
+
+        if self.patience_counter >= 20:
+            pass
+            # Implement logic to reduce Q or adjust optimizer parameters
+
+    def get_last_lr(self):
+        return [1.0]
+
 
 # Mass-Spring-Damper system simulation
+# m dxdx + c dx + kx = u
 def mass_spring_damper(t, state, m, c, k, u):
     x, x_dot = state
-    x_ddot = (u - c*x_dot - k*x) / m
+    x_ddot = (u - c * x_dot - k * x) / m
     return [x_dot, x_ddot]
 
-def sim_mass_spring_damper(x0=0.0, x_dot0=0.0, m=1.0, c=0.5, k=1.0, u=0.0, t_end=20.0, t_eval=None):
+
+def sim_mass_spring_damper(
+    x0=0.0, x_dot0=0.0, m=1.0, c=0.5, k=1.0, u=0.0, t_end=20.0, t_eval=None
+):
     initial_state = [x0, x_dot0]  # Initial position and velocity
     params = (m, c, k, u)
     # Integrate the ODE
-    res = solve_ivp(mass_spring_damper, [0,t_end], initial_state, args=params, t_eval=t_eval)
+    res = solve_ivp(
+        mass_spring_damper, [0, t_end], initial_state, args=params, t_eval=t_eval
+    )
     return res.t, res.y
+
 
 def generate_dataset(x0_samples, x_dot0_samples, **kwargs):
     X = []
@@ -297,83 +461,85 @@ def generate_dataset(x0_samples, x_dot0_samples, **kwargs):
         Y.append(states_sim[0])  # Position at each time step
     return np.array(X, dtype=np.float32), np.array(Y, dtype=np.float32)
 
-## cosine similarity
-# use einsum to compute Y_train @ Y_transfer.T / ||Y_train|| * ||Y_transfer||
-def cosine_similarity(a, b):
-    """computes row-wise cosine similarity."""
-    assert a.ndim == b.ndim
-    if a.ndim == 1:
-        return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
-    if a.ndim == 2:
-        return np.einsum('ij,ij->i', a, b) / (np.linalg.norm(a, axis=1) * np.linalg.norm(b, axis=1))
-
-def cosine_distance(a, b):
-    """computes row-wise cosine distance."""
-    return (1 - cosine_similarity(a, b)) / 2
 
 def transfer_scenario_name(transfer_params):
     """Generates a scenario name based on the transfer parameters."""
     return "".join([f"{k}({v})" for k, v in transfer_params.items()])
 
-def get_transfer_data(transfer_params, data_dir=os.path.join(DATA_DIR, "transfer")):
-    scenario_filename = transfer_scenario_name(transfer_params) + ".npz"
-    if not os.path.exists(os.path.join(data_dir, scenario_filename)):
-        return False
-    data = np.load(os.path.join(data_dir, scenario_filename))
-    data_x = np.load(os.path.join(data_dir, "X.npz"))["X"]
-    data_y = data["Y"]
-    return data_x, data_y
 
-def generate_transfer_data(transfer_params, n_samples=N_TRANSFER_TOTAL, data_dir=os.path.join(DATA_DIR, "transfer"), t_eval=np.arange(1, 21)):
-    """Generates transfer data for the given parameters."""
-    if not os.path.exists(os.path.join(data_dir, "X.npy")):
-        rng = np.random.default_rng(42)
-        X_transfer = rng.uniform(-5, 5, (n_samples, 2)).astype(np.float32)
-        np.savez(os.path.join(data_dir, "X"), X=X_transfer)
+def data_dim_name(data_dim):
+    """Generates a data dimension name based on the data dimension."""
+    return f"dataDim({data_dim})"
+
+
+def get_data_iteration_name(data_iteration):
+    """Generates a data iteration name based on the data iteration."""
+    return f"dataIter({data_iteration})"
+
+
+def get_data_indices(data_dim, data_iteration):
+    train_begin = 10_000 * data_iteration
+    trainVal_end = train_begin + data_dim
+    test_begin = train_begin + 1_000
+    test_end = test_begin + 9_000
+    return np.concatenate(
+        [
+            np.arange(train_begin, trainVal_end),
+            np.arange(test_begin, test_end),
+        ],
+        dtype=int,
+    )
+
+
+def get_transfer_data(scenario, indices=None):
+    """Retrieve transfer data for a specific scenario and optional indices."""
+    transfer_data = np.load(TRANSFER_DATA_PATH)
+    scenario_name = transfer_scenario_name(scenario)
+    if scenario_name not in transfer_data:
+        raise ValueError(f"Scenario {scenario_name} not found in transfer data.")
+    X = transfer_data["X"]
+    Y = transfer_data[scenario_name]
+    if indices is not None:
+        X = X[indices]
+        Y = Y[indices]
+    return X, Y
+
+
+def train_val_test_split(
+    x, y, n_train, n_validation, n_test, begin_index=0, tensor_convert=True
+):
+    train_begin_index = begin_index
+    train_end_index = train_begin_index + n_train
+    val_begin_index = train_end_index
+    val_end_index = val_begin_index + n_validation
+    test_begin_index = val_end_index
+    test_end_index = test_begin_index + n_test
+    if not tensor_convert:
+        x_train = x[train_begin_index:train_end_index]
+        y_train = y[train_begin_index:train_end_index]
+        x_val = x[val_begin_index:val_end_index]
+        y_val = y[val_begin_index:val_end_index]
+        x_test = x[test_begin_index:test_end_index]
+        y_test = y[test_begin_index:test_end_index]
+        return x_train, y_train, x_val, y_val, x_test, y_test
     else:
-        X_transfer = np.load(os.path.join(data_dir, "X.npy"))["X"]
-        
-    if os.path.exists(os.path.join(data_dir, transfer_scenario_name(transfer_params) + ".npz")):
-        Y_transfer =  get_transfer_data(transfer_params, data_dir)
-    else:
-        _, Y_transfer = generate_dataset(X_transfer[:, 0], X_transfer[:, 1], t_eval=t_eval, **transfer_params)
-        scenario_filename = transfer_scenario_name(transfer_params) + ".npz"
-        np.savez(os.path.join(data_dir, scenario_filename), Y=Y_transfer)
-    # ensure float32 type
-    Y_transfer = np.array(Y_transfer, dtype=np.float32)
-    
-    return X_transfer, Y_transfer
+        x_train = torch.tensor(
+            x[train_begin_index:train_end_index], dtype=torch.float32
+        )
+        y_train = torch.tensor(
+            y[train_begin_index:train_end_index], dtype=torch.float32
+        )
+        x_val = torch.tensor(x[val_begin_index:val_end_index], dtype=torch.float32)
+        y_val = torch.tensor(y[val_begin_index:val_end_index], dtype=torch.float32)
+        x_test = torch.tensor(x[test_begin_index:test_end_index], dtype=torch.float32)
+        y_test = torch.tensor(y[test_begin_index:test_end_index], dtype=torch.float32)
+        return x_train, y_train, x_val, y_val, x_test, y_test
 
-def train_val_test_split(x,y, n_train=None, n_validation=None, n_test=None, p_train=None, p_validation=None, p_test=None, tensor_convert=False):
-    """Splits the data into train, validation and test sets."""
-    assert len(x) == len(y), "x and y must have the same length"
-    # give either n_train, n_validation or n_test, or p_train, p_validation, p_test
-    if p_train is not None:
-        assert p_train + p_validation + p_test == 1, "p_train, p_validation and p_test must sum to 1"
-        assert all((n_train is None, n_validation is None, n_test is None)), "Either use p_train, p_validation, p_test or n_train, n_validation, n_test"
-        n_train = int(p_train * len(x))
-        n_validation = int(p_validation * len(x))
-        n_test = len(x) - n_train - n_validation
-    if n_train is None:
-        n_train = int(0.8 * len(x))
-    if n_validation is None:
-        n_validation = int(0.1 * len(x))
-    if n_test is None:
-        n_test = len(x) - n_train - n_validation
 
-    x_train = x[:n_train]
-    y_train = y[:n_train]
-    x_validation = x[n_train:n_train+n_validation]
-    y_validation = y[n_train:n_train+n_validation]
-    x_test = x[n_train+n_validation:n_train+n_validation+n_test]
-    y_test = y[n_train+n_validation:n_train+n_validation+n_test]
-    if tensor_convert:
-        x_train = torch.tensor(x_train, dtype=torch.float32)
-        y_train = torch.tensor(y_train, dtype=torch.float32)
-        x_validation = torch.tensor(x_validation, dtype=torch.float32)
-        y_validation = torch.tensor(y_validation, dtype=torch.float32)
-        x_test = torch.tensor(x_test, dtype=torch.float32)
-        y_test = torch.tensor(y_test, dtype=torch.float32)
-
-    return x_train, y_train, x_validation, y_validation, x_test, y_test
-
+def zip_dir(dir, zip_filename):
+    dir = Path(dir)
+    for file in dir.rglob("*"):
+        if file.is_file():
+            with zipfile.ZipFile(zip_filename, "a") as zipf:
+                zipf.write(file, file.relative_to(dir))
+    return
