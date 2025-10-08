@@ -7,7 +7,7 @@ from dampedSpring import *
 
 # script
 if __name__ == "__main__":
-    initialization_dir = RESULTS_DIR.joinpath("transfer", "retrain")
+    initialization_dir = RESULTS_DIR.joinpath("transfer", "finetune")
     initialization_dir.mkdir(parents=True, exist_ok=True)
     for scenario in SCENARIOS:
         scenario_name = transfer_scenario_name(scenario)
@@ -69,8 +69,8 @@ if __name__ == "__main__":
                         "batch_size": tune.qlograndint(1, data_dim, 2),
                         "lr_patience": 10,
                         "lr_factor": tune.uniform(0.0, 1.0),
-                        # "mask_fn_quantile_thresh": tune.uniform(0.0, 1.0),
-                        "initialize_weights": "random",
+                        "mask_fn_quantile_thresh": tune.quniform(0.0, 1.0, 0.05),
+                        "initialize_weights": "finetune",
                     }
 
                     scheduler = ASHAScheduler(
@@ -163,8 +163,8 @@ if __name__ == "__main__":
                         "Q": tune.choice([0, 1e-6, 1e-4, 1e-2, 1e-1]),
                         "p0": tune.choice([0.01, 0.1, 0.5, 1.0, 10.0, 100.0]),
                         "batch_size": tune.qlograndint(1, min(20, data_dim), 2),
-                        # "mask_fn_quantile_thresh": tune.uniform(0.0, 1.0),
-                        "initialize_weights": "random",
+                        "mask_fn_quantile_thresh": tune.quniform(0.0, 1.0, 0.05),
+                        "initialize_weights": "finetune",
                     }
 
                     scheduler = ASHAScheduler(
@@ -259,7 +259,7 @@ if __name__ == "__main__":
                         "lr_history_size": tune.choice([5, 10, 20, 40]),
                         "lr_patience": tune.choice([10, 20, 40]),
                         "lr_factor": tune.uniform(0.1, 1.0),
-                        "initialize_weights": "random",
+                        "initialize_weights": "finetune",
                     }
 
                     scheduler = ASHAScheduler(

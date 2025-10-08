@@ -101,6 +101,7 @@ if __name__ == "__main__":
             run_config=tune.RunConfig(
                 verbose=1,
                 name=f"dampedSpring_training",
+                storage_path=RAY_STORAGE_PATH,
                 checkpoint_config=tune.CheckpointConfig(
                     num_to_keep=1, checkpoint_frequency=1000, checkpoint_at_end=True
                 ),

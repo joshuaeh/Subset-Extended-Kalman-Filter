@@ -34,7 +34,7 @@ np.random.seed(42)
 g = torch.Generator()
 g.manual_seed(42)
 
-RAY_STORAGE_PATH = ""
+RAY_STORAGE_PATH = "/home1/08940/joshuaeh/SCRATCH/Subset-Extended-Kalman-Filter/transfer/dampedSpring/data/ray_results"
 
 EXPERIMENT_DIR = Path(__file__).parent
 DATA_DIR = EXPERIMENT_DIR.joinpath("data")
