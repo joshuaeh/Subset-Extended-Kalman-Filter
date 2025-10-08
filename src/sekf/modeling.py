@@ -414,10 +414,23 @@ def val_epoch(model, dataloader, criterion, device=None):
 
 
 def mask_fn(grads, thresh=None, quantile_thresh=None):
+    """
+    Generate a mask for which parameters to update based on the gradient
+    ARGS:
+        grads(torch.Tensor): gradient vector
+        thresh(float): if provided, selects parameters with gradients above this threshold
+        quantile_thresh(float): if provided, selects q proportion of the parameters with the highest gradients
+            0 < quantile_thresh < 1
+            0: no parameters selected
+            1: all parameters selected
+    RETURNS:
+        mask: torch.BoolTensor
+        
+    """
     if thresh is not None:
         return grads.abs() > thresh
     elif quantile_thresh is not None:
-        return grads.abs() > torch.quantile(grads.abs(), quantile_thresh)
+        return grads.abs() > torch.quantile(grads.abs(), 1 - quantile_thresh)
     else:
         return torch.ones_like(grads, dtype=torch.bool)
 
