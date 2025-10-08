@@ -75,7 +75,7 @@ if __name__ == "__main__":
                 mode="min",
                 scheduler=scheduler,
                 max_concurrent_trials=4,
-                num_samples=4,
+                num_samples=50,
             ),
             param_space=config,
             run_config=tune.RunConfig(
