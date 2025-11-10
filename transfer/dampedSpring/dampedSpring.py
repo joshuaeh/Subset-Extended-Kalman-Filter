@@ -20,7 +20,9 @@ from sekf.modeling import (
     cosine_similarity,
     get_jacobian,
     get_parameter_vector,
+    get_parameter_gradient_vector,
     init_weights,
+    mask_fn,
     seed_worker,
 )
 from sekf.optimizers import SEKF, maskedAdam
@@ -357,8 +359,8 @@ class DampedSpringTrainer_SEKF(DampedSpringTrainer):
         if self.config.get("mask_fn_quantile_thresh", None) is not None:
             loss = self.loss_fn(y_pred, y_batch)
             loss.backward()
-            grad_loss = self.optimizer._get_flat_grads()
-            mask = self.optimizer.mask_fn(grad_loss)
+            grad_loss = get_parameter_gradient_vector(self.model)
+            mask = mask_fn(grad_loss, self.config.get("mask_fn_quantile_thresh"))
         else:
             mask = None
         J = get_jacobian(self.model, (x_batch))
