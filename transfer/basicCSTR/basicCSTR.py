@@ -71,6 +71,7 @@ TRANSFER_DATA_PATH = DATA_DIR.joinpath("transfer_data.npz")
 MODEL_FILENAME = "model.pth"
 OPTIMIZER_FILENAME = "optimizer.pth"
 MODEL0_PATH = RESULTS_DIR.joinpath("training", MODEL_FILENAME)
+MONTH_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
 
 FILE_ENDING_MAPPING = {
     "metrics": "_metrics.csv",
