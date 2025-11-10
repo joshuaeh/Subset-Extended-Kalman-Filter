@@ -501,6 +501,14 @@ class BasicCSTRTrainer(tune.Trainable):
             self.x_scaler.mean_ = np.zeros(3)
             self.u_scaler.scale_ = np.ones(1)
             self.u_scaler.mean_ = np.zeros(1)
+        if config.get("x_scale", False):
+            self.x_scaler.scale_ = config.get("x_scale")
+        if config.get("x_mean", False):
+            self.x_scaler.mean_ = config.get("x_mean")
+        if config.get("u_scale", False):
+            self.u_scaler.scale_ = config.get("u_scale")
+        if config.get("u_mean", False):
+            self.u_scaler.mean_ = config.get("u_mean")
         self.train_dataset = format_dataset(
             {
                 "Y": data["train_y"],
