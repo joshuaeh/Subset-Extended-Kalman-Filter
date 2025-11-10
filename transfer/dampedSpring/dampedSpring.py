@@ -26,6 +26,7 @@ from sekf.modeling import (
     seed_worker,
 )
 from sekf.optimizers import SEKF, maskedAdam
+from sekf.utils import zip_dir
 from tqdm import tqdm
 
 ##### Constants
@@ -536,12 +537,3 @@ def train_val_test_split(
         x_test = torch.tensor(x[test_begin_index:test_end_index], dtype=torch.float32)
         y_test = torch.tensor(y[test_begin_index:test_end_index], dtype=torch.float32)
         return x_train, y_train, x_val, y_val, x_test, y_test
-
-
-def zip_dir(dir, zip_filename):
-    dir = Path(dir)
-    for file in dir.rglob("*"):
-        if file.is_file():
-            with zipfile.ZipFile(zip_filename, "a") as zipf:
-                zipf.write(file, file.relative_to(dir))
-    return
