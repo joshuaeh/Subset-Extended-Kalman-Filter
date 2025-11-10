@@ -1,5 +1,7 @@
 import numpy as np
 from scipy import stats
+from pathlib import Path
+import zipfile
 
 
 def get_ci(data, confidence=0.95):
@@ -59,3 +61,11 @@ def plot_ci(
         s=marker_size,
         zorder=2,
     )
+
+def zip_dir(dir, zip_filename):
+    dir = Path(dir)
+    for file in dir.rglob("*"):
+        if file.is_file():
+            with zipfile.ZipFile(zip_filename, "a") as zipf:
+                zipf.write(file, file.relative_to(dir))
+    return
