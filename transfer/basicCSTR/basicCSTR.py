@@ -28,6 +28,7 @@ from tqdm import tqdm
 
 from sekf.modeling import Exogenous_RkRNN, init_weights, get_jacobian, seed_worker, g, get_parameter_vector
 from sekf.optimizers import SEKF, maskedAdam
+from sekf.utils import zip_dir
 
 default_rng = np.random.default_rng(42)
 # ----- plotting parameters -----
@@ -63,6 +64,8 @@ plt.rc("savefig", dpi=1_000)
 # ----- end plotting parameters -----
 
 # constants
+RAY_STORAGE_PATH = "/home1/08940/joshuaeh/SCRATCH/Subset-Extended-Kalman-Filter/transfer/basicCSTR/data/ray_results"
+
 CASE_DIR = Path(__file__).parent
 DATA_DIR = CASE_DIR.joinpath("data")
 RESULTS_DIR = CASE_DIR.joinpath("results")
@@ -70,6 +73,8 @@ TRAINING_DATA_PATH = DATA_DIR.joinpath("training_data.npz")
 TRANSFER_DATA_PATH = DATA_DIR.joinpath("transfer_data.npz")
 MODEL_FILENAME = "model.pth"
 OPTIMIZER_FILENAME = "optimizer.pth"
+ALL_TRIALS_BASE_FILENAME = "allTrials_metrics.csv"
+BEST_RESULT_BASE_FILENAME = "bestResult_metrics.csv"
 MODEL0_PATH = RESULTS_DIR.joinpath("training", MODEL_FILENAME)
 MONTH_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
 
@@ -676,3 +681,135 @@ class BasicCSTRTrainer(tune.Trainable):
         """Cleanup resources."""
         # No specific cleanup needed for this trainer
         self.save()
+        
+default_config_SEKF = {
+    "batch_size": 1,
+    "initialize_weights": "finetune",  # or "random"
+    "max_epochs": 1000,
+    "mask_fn_quantile_thresh": None,
+    "R": 0.1,
+    "Q": 0.1,
+    "p0": 100.0,
+    "log_frequency": None,
+}
+
+class CSTRTrainer_SEKF(BasicCSTRTrainer):
+    """Trainer for SEKF specifically."""
+
+    def _set_config(self, config):
+        self.config = default_config_SEKF | config
+        return
+
+    def _init_optimizer(self, config):
+        self.optimizer = SEKF(
+            self.model.parameters(),
+            R=config.get("R"),
+            p0=config.get("p0", 100),
+            q=config.get("Q"),
+            mask_fn_quantile_thresh=config.get("mask_fn_quantile_thresh", 0.0),
+        )
+
+    def _scheduler(self, config):
+        return SEKF_scheduler(self.optimizer)
+
+    def setup(self, config, data):
+        self._set_config(config)
+        self._init_model(self.config)
+        self._init_optimizer(self.config)
+        self.loss_fn = nn.MSELoss()
+        self.scheduler = self._scheduler(self.config)
+        self._setup(config, data)
+
+    def _optimizer_step(self, x_batch, y_batch):
+        """Performs a single step of the SEKF optimizer."""
+        y_pred = self.model(x_batch)
+        e = y_batch - y_pred
+        if torch.isnan(e).any():
+            self.reset()
+
+        if self.config.get("mask_fn_quantile_thresh", None) is not None:
+            loss = self.loss_fn(y_pred, y_batch)
+            loss.backward()
+            grad_loss = get_parameter_gradient_vector(self.model)
+            mask = mask_fn(grad_loss, self.config.get("mask_fn_quantile_thresh"))
+        else:
+            mask = None
+        J = get_jacobian(self.model, (x_batch))
+        self.optimizer.step(e, J, mask=mask)
+
+default_config_LBFGS = {
+    "batch_size": 1,
+    "initialize_weights": "finetune",  # or "random"
+    "max_epochs": 500,
+    "lr": 1.0,
+    "lr_max_iter": 20,
+    "lr_history_size": 10,
+    "lr_patience": 20,
+    "lr_factor": 0.5,
+}
+
+class CSTRTrainer_LBFGS(BasicCSTRTrainer):
+    """Trainer for LBFGS specifically."""
+
+    def _set_config(self, config):
+        self.config = default_config_LBFGS | config
+        return
+
+    def _init_optimizer(self, config):
+        self.optimizer = torch.optim.LBFGS(
+            self.model.parameters(),
+            lr=config.get("lr", 1.0),
+            max_iter=config.get("lr_max_iter", 20),
+            history_size=config.get("lr_history_size", 10),
+        )
+
+    def _scheduler(self, config):
+        return optim.lr_scheduler.ReduceLROnPlateau(
+            self.optimizer,
+            "min",
+            patience=self.config.get("lr_patience"),
+            factor=self.config.get("lr_factor"),
+        )
+
+    def setup(self, config, data):
+        self._set_config(config)
+        self._init_model(self.config)
+        self._init_optimizer(self.config)
+        self.loss_fn = nn.MSELoss()
+        self.scheduler = self._scheduler(self.config)
+        self._setup(config, data)
+
+    def _optimizer_step(self, x_batch, y_batch):
+        """Performs a single step of the LBFGS optimizer."""
+
+        def closure():
+            self.optimizer.zero_grad()
+            y_pred = self.model(x_batch)
+            loss = self.loss_fn(y_pred, y_batch)
+            if torch.isnan(loss).any():
+                self.reset()
+            loss.backward()
+            return loss
+
+        self.optimizer.step(closure)
+
+
+class SEKF_scheduler:
+    def __init__(self, optimizer):
+        self.optimizer = optimizer
+        self.lowest_val_loss = float("inf")
+        self.patience_counter = 0
+
+    def step(self, val_loss):
+        if val_loss < self.lowest_val_loss:
+            self.lowest_val_loss = val_loss
+            self.patience_counter = 0
+        else:
+            self.patience_counter += 1
+
+        if self.patience_counter >= 20:
+            pass
+            # Implement logic to reduce Q or adjust optimizer parameters
+
+    def get_last_lr(self):
+        return [1.0]
