@@ -99,7 +99,7 @@ if __name__ == "__main__":
                             mode="min",
                             scheduler=scheduler,
                             max_concurrent_trials=1,
-                            num_samples=100,
+                            num_samples=50,
                             # reuse_actors=True
                         ),
                         param_space=config,

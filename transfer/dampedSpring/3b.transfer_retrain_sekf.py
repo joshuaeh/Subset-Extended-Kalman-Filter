@@ -99,7 +99,7 @@ if __name__ == "__main__":
                             metric="val_loss",
                             mode="min",
                             scheduler=scheduler,
-                            max_concurrent_trials=1,
+                            max_concurrent_trials=2,
                             num_samples=50,
                             # reuse_actors=True
                         ),

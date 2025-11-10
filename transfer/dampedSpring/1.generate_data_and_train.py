@@ -128,7 +128,7 @@ if __name__ == "__main__":
         print(f"{best_result.checkpoint=}")
         with best_result.checkpoint.as_directory() as checkpoint_dir:
             model_path = Path(checkpoint_dir).joinpath(MODEL_FILENAME)
-            target_path = RESULTS_DIR.joinpath("training", "model_weights.pth")
+            target_path = MODEL0_WEIGHTS_PATH
             shutil.copy(str(model_path), str(target_path))
 
         # compress all results directories and move to case_dir
