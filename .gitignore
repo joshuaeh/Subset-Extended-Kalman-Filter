@@ -155,3 +155,5 @@ examples/*
 transfer/dampedSpring/data/*
 transfer/dampedSpring/results/*
 _transfer/*
+transfer/basicCSTR/data/*
+transfer/basicCSTR/results/*
