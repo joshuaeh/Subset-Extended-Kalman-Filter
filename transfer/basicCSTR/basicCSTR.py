@@ -16,6 +16,7 @@ import seaborn as sns
 from sklearn.preprocessing import StandardScaler
 import torch
 import torch.nn as nn
+from torch import optim
 from tqdm import tqdm
 
 # torch.set_default_dtype(torch.float64)
@@ -26,7 +27,7 @@ from tqdm import tqdm
 # print(f"Using device: {device}")
 # torch.set_default_device(device)
 
-from sekf.modeling import Exogenous_RkRNN, init_weights, get_jacobian, seed_worker, g, get_parameter_vector
+from sekf.modeling import Exogenous_RkRNN, init_weights, get_jacobian, seed_worker, get_parameter_gradient_vector, get_parameter_vector, g
 from sekf.optimizers import SEKF, maskedAdam
 from sekf.utils import zip_dir
 
@@ -720,21 +721,21 @@ class CSTRTrainer_SEKF(BasicCSTRTrainer):
         self.scheduler = self._scheduler(self.config)
         self._setup(config, data)
 
-    def _optimizer_step(self, x_batch, y_batch):
+    def _optimizer_step(self, batch):
         """Performs a single step of the SEKF optimizer."""
-        y_pred = self.model(x_batch)
-        e = y_batch - y_pred
+        y_pred = self.model(batch["y0"], batch["u"])
+        e = batch["y1"] - y_pred
         if torch.isnan(e).any():
             self.reset()
 
         if self.config.get("mask_fn_quantile_thresh", None) is not None:
-            loss = self.loss_fn(y_pred, y_batch)
+            loss = self.loss_fn(y_pred, batch["y1"])
             loss.backward()
             grad_loss = get_parameter_gradient_vector(self.model)
             mask = mask_fn(grad_loss, self.config.get("mask_fn_quantile_thresh"))
         else:
             mask = None
-        J = get_jacobian(self.model, (x_batch))
+        J = get_jacobian(self.model, (batch["y0"], batch["u"]))
         self.optimizer.step(e, J, mask=mask)
 
 default_config_LBFGS = {
@@ -779,13 +780,13 @@ class CSTRTrainer_LBFGS(BasicCSTRTrainer):
         self.scheduler = self._scheduler(self.config)
         self._setup(config, data)
 
-    def _optimizer_step(self, x_batch, y_batch):
+    def _optimizer_step(self, batch):
         """Performs a single step of the LBFGS optimizer."""
 
         def closure():
             self.optimizer.zero_grad()
-            y_pred = self.model(x_batch)
-            loss = self.loss_fn(y_pred, y_batch)
+            y_pred = self.model(batch["y0"], batch["u"])
+            loss = self.loss_fn(y_pred, batch["y1"])
             if torch.isnan(loss).any():
                 self.reset()
             loss.backward()

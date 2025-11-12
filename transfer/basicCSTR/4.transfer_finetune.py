@@ -4,7 +4,6 @@ from basicCSTR import *
 
 # constants
 os.environ["TUNE_WARN_EXCESSIVE_EXPERIMENT_CHECKPOINT_SYNC_THRESHOLD_S"] = "0"
-method = "adam"
 
 # script
 if __name__ == "__main__":
@@ -25,12 +24,7 @@ if __name__ == "__main__":
     print(f"Train u scale: {train_u_scale}")
     print(f"Train u mean: {train_u_mean}")
     
-    # ensure directories exist
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    TRANSFER_DATA_PATH = DATA_DIR.joinpath("transfer_data.npz")
-    transfer_results = np.load(TRANSFER_DATA_PATH)
-    
+
     # --- configs ---
     data_dim = 28 # minimum number of datapoints for batch size
     configs = {
@@ -39,17 +33,16 @@ if __name__ == "__main__":
             "batch_size": tune.qlograndint(1, data_dim, 2),
             "lr_patience": tune.choice([10, 20, 50, 100]),
             "lr_factor": tune.uniform(0.1, 0.9),
-            "initialize_weights": "random"
+            "mask_fn_quantile_thresh": tune.uniform(0.0, 1.0),
+            "initialize_weights": "finetune"
         },
         "sekf": {
-            # "R": tune.choice([0, 0.01, 0.05, 0.1, 0.5, 1.0]),
-            "R": tune.loguniform(1e-8, 1.0),
-            # "Q": tune.choice([0, 1e-6, 1e-4, 1e-2, 1e-1]),
-            "Q": tune.loguniform(1e-8, 1e-1),
+            "R": tune.choice([0, 0.01, 0.05, 0.1, 0.5, 1.0]),
+            "Q": tune.choice([0, 1e-6, 1e-4, 1e-2, 1e-1]),
             "p0": tune.choice([0.01, 0.1, 0.5, 1.0, 10.0, 100.0]),
             "batch_size": tune.qlograndint(1, min(20, data_dim), 2),
-            # "mask_fn_quantile_thresh": tune.uniform(0.0, 1.0),
-            "initialize_weights": "random",
+            "mask_fn_quantile_thresh": tune.uniform(0.0, 1.0),
+            "initialize_weights": "finetune",
         },
         "lbfgs": {
             "lr": tune.loguniform(1e-6, 1e0),
@@ -58,7 +51,7 @@ if __name__ == "__main__":
             "lr_history_size": tune.choice([5, 10, 20]),
             "lr_patience": tune.choice([10, 20, 50, 100]),
             "lr_factor": tune.uniform(0.1, 0.9),
-            "initialize_weights": "random",
+            "initialize_weights": "finetune",
         }
     }
     
@@ -76,10 +69,10 @@ if __name__ == "__main__":
         month_end = month_start + MONTH_DAYS[month] * 24 * 60
         for training_days in [0.25, 1, 7]:
             for method in ["adam", "sekf", "lbfgs"]:
-                TRANSFER_RESULTS_DIR = RESULTS_DIR.joinpath("transfer","retraining", f"month_{month+1}", f"days_{training_days}", method)
+                TRANSFER_RESULTS_DIR = RESULTS_DIR.joinpath("transfer","finetuning", f"month_{month+1}", f"days_{training_days}", method)
                 TRANSFER_RESULTS_DIR.mkdir(parents=True, exist_ok=True)
                 counter += 1
-                print(f"Running transfer retraining {counter} of {total_runs}: month {month+1}, days {training_days}, method {method}")
+                print(f"Running transfer finetuning {counter} of {total_runs}: month {month+1}, days {training_days}, method {method}")
                 
                 all_trials_path = TRANSFER_RESULTS_DIR.joinpath(ALL_TRIALS_BASE_FILENAME)
                 best_result_path = TRANSFER_RESULTS_DIR.joinpath(BEST_RESULT_BASE_FILENAME)
