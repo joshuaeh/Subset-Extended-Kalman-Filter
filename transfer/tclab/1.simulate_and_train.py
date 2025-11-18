@@ -43,10 +43,10 @@ if not Path("data").joinpath("tclab_sim_data.csv").exists():
             if rng.random() < 0.5:
                 q2_setting = 0
         Ta = np.clip(Ta + rng.normal(0, 0.05), 20, 26)
-        X = np.array([T1, T2, Ta])
-        U = np.array([q1_setting, q2_setting])
+        X = np.array([T1, T2])
+        U = np.array([q1_setting, q2_setting, Ta])
         sol = solve_ivp(dTdt_TCLab, [t, t + 10], X, args=(U,), t_eval=[t + 10])
-        T1, T2, Ta = sol.y[:, -1]
+        T1, T2 = sol.y[:, -1]
         data.append([t, T1, T2, Ta, q1_setting, q2_setting])
     df = pd.DataFrame(data, columns=["time", "T1", "T2", "Ta", "Q1", "Q2"])
     df.to_csv(Path("data").joinpath("tclab_sim_data.csv"), index=False)
