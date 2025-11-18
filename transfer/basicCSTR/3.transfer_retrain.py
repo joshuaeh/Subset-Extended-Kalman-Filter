@@ -1,7 +1,9 @@
 # imports
+import os
 from basicCSTR import *
 
 # constants
+os.environ["TUNE_WARN_EXCESSIVE_EXPERIMENT_CHECKPOINT_SYNC_THRESHOLD_S"] = "0"
 method = "adam"
 
 # script
@@ -30,6 +32,7 @@ if __name__ == "__main__":
     transfer_results = np.load(TRANSFER_DATA_PATH)
     
     # --- configs ---
+    data_dim = 28 # minimum number of datapoints for batch size
     configs = {
         "adam": {
             "lr": tune.loguniform(1e-6, 1e-1),
@@ -39,8 +42,10 @@ if __name__ == "__main__":
             "initialize_weights": "random"
         },
         "sekf": {
-            "R": tune.choice([0, 0.01, 0.05, 0.1, 0.5, 1.0]),
-            "Q": tune.choice([0, 1e-6, 1e-4, 1e-2, 1e-1]),
+            # "R": tune.choice([0, 0.01, 0.05, 0.1, 0.5, 1.0]),
+            "R": tune.loguniform(1e-8, 1.0),
+            # "Q": tune.choice([0, 1e-6, 1e-4, 1e-2, 1e-1]),
+            "Q": tune.loguniform(1e-8, 1e-1),
             "p0": tune.choice([0.01, 0.1, 0.5, 1.0, 10.0, 100.0]),
             "batch_size": tune.qlograndint(1, min(20, data_dim), 2),
             # "mask_fn_quantile_thresh": tune.uniform(0.0, 1.0),
@@ -48,6 +53,7 @@ if __name__ == "__main__":
         },
         "lbfgs": {
             "lr": tune.loguniform(1e-6, 1e0),
+            "batch_size": tune.qlograndint(1, data_dim, 2),
             "lr_max_iter": tune.choice([5, 10, 20, 50]),
             "lr_history_size": tune.choice([5, 10, 20]),
             "lr_patience": tune.choice([10, 20, 50, 100]),
@@ -74,13 +80,16 @@ if __name__ == "__main__":
                 TRANSFER_RESULTS_DIR.mkdir(parents=True, exist_ok=True)
                 counter += 1
                 print(f"Running transfer retraining {counter} of {total_runs}: month {month+1}, days {training_days}, method {method}")
-                if not TRANSFER_RESULTS_DIR.joinpath("results.npz").exists():
-                    train_validation_idx = month_start + 0.8 * (training_days * 24 * 60)
-                    validation_test_idx = month_start + (training_days * 24 * 60)
-                    all_trials_path = TRANSFER_RESULTS_DIR.joinpath(ALL_TRIALS_BASE_FILENAME)
-                    best_result_path = TRANSFER_RESULTS_DIR.joinpath(BEST_RESULT_BASE_FILENAME)
-                    model_weights_path = TRANSFER_RESULTS_DIR.joinpath(MODEL_FILENAME)
-                    ray_results_path = TRANSFER_RESULTS_DIR.joinpath("ray_results.zip")
+                
+                all_trials_path = TRANSFER_RESULTS_DIR.joinpath(ALL_TRIALS_BASE_FILENAME)
+                best_result_path = TRANSFER_RESULTS_DIR.joinpath(BEST_RESULT_BASE_FILENAME)
+                model_weights_path = TRANSFER_RESULTS_DIR.joinpath(MODEL_FILENAME)
+                ray_results_path = TRANSFER_RESULTS_DIR.joinpath("ray_results.zip")
+                
+                if not all(p.exists() for p in [all_trials_path, best_result_path, model_weights_path, ray_results_path]):
+                    
+                    train_validation_idx = int(month_start + 0.8 * (training_days * 24 * 60))
+                    validation_test_idx = int(month_start + (training_days * 24 * 60))
                     
                     data = {
                         "train_y": transfer_data["Y"][month_start:train_validation_idx],
@@ -112,17 +121,17 @@ if __name__ == "__main__":
                             resources={"cpu": 1},
                         ),
                         tune_config=tune.TuneConfig(
-                            metric="val_loss",
+                            metric="val_L2e",
                             mode="min",
                             scheduler=scheduler,
-                            max_concurrent_trials=4,
-                            num_samples=100,
+                            max_concurrent_trials=2,
+                            num_samples=50,
                             # reuse_actors=True
                         ),
                         param_space=configs[method],
                         run_config=tune.RunConfig(
                             verbose=0,
-                            name=f"dampedSpring_retrain_month{month+1}_days{training_days}_{method}",
+                            name=f"CSTR_retrain_month{month+1}_days{training_days}_{method}",
                             storage_path=RAY_STORAGE_PATH,
                             checkpoint_config=tune.CheckpointConfig(
                                 num_to_keep=1,
@@ -134,7 +143,7 @@ if __name__ == "__main__":
                     )
                     results = tuner.fit()
 
-                    best_result = results.get_best_result("val_loss", "min")
+                    best_result = results.get_best_result("val_L2e", "min")
 
                     # save metrics csvs
                     print(f"Best trial config: {best_result.config}")
