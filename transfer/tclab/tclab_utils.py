@@ -75,18 +75,18 @@ class TCLabDataset(torch.utils.data.Dataset):
         return {
             "y0": self.data["y0"][idx],
             "u": self.data["u"][idx],
-            "y": self.data["y"][idx],
+            "y1": self.data["y1"][idx],
         }
 
 def format_data(
     df,
     x_scaler,
     u_scaler,
-    train=False,
-    begin_index=0,
-    end_index=None,
-    input_cols=["Q1", "Q2"],
-    state_cols=["T1_noisy", "T2_noisy", "Ta_noisy"],
+    begin_idx=0,
+    end_idx=None,
+    input_cols=["Q1", "Q2", "Ta"],
+    # state_cols=["T1_noisy", "T2_noisy", "Ta_noisy"],
+    state_cols=["T1", "T2"],
     context_length=1,
     prediction_length=60,
     stride=1,
@@ -95,22 +95,19 @@ def format_data(
     dtype=None,
 ):
     """ """
-    if end_index is None:
-        end_index = len(df)
+    if end_idx is None:
+        end_idx = len(df)
     if device is None:
         device = torch.get_default_device()
     if dtype is None:
         dtype = torch.get_default_dtype()
 
-    X = df[state_cols].iloc[begin_index:end_index].to_numpy()
-    U = df[input_cols].iloc[begin_index:end_index].to_numpy()
+    X = df[state_cols].iloc[begin_idx:end_idx].to_numpy()
+    U = df[input_cols].iloc[begin_idx:end_idx].to_numpy()
 
-    if train:
-        X = x_scaler.fit_transform(X)
-        U = u_scaler.fit_transform(U)
-    else:
-        X = x_scaler.transform(X)
-        U = u_scaler.transform(U)
+    
+    X = x_scaler.transform(X)
+    U = u_scaler.transform(U)
 
     # convert to torch tensors
     X = torch.tensor(X, device=device, dtype=dtype)
@@ -118,7 +115,7 @@ def format_data(
 
     # convert to dataset/sequences
     idx = (
-        torch.arange(begin_index, end_index)
+        torch.arange(begin_idx, end_idx)
         .unfold(0, context_length + prediction_length, stride)
         .cpu()
         .numpy()
@@ -127,151 +124,150 @@ def format_data(
     U = U.unfold(0, context_length + prediction_length, stride).permute(0, 2, 1)
 
     data = {
-        "idx": idx,
-        "y": X[:, context_length:, :],
+        "y1": X[:, context_length:, :],
         "y0": X[:, :context_length, :],
         "u": U[:, :-context_length, :],
     }
     return data
 
-class tclab_measured_dataset:
-    def __init__(
-        self,
-        df,
-        Xscaler,
-        Uscaler,
-        train=True,
-        begin_idx=0,
-        end_idx=None,
-        input_cols=["Q1", "Q2", "Ta"],
-        state_cols=["T1", "T2"],
-        context_length=1,
-        prediction_length=60,
-        t_interval=10,
-        stride=3,
-        dtype=None,
-        device=None,
-    ):
-        if end_idx is None:
-            end_idx = len(df)
-        if dtype is None:
-            dtype = torch.get_default_dtype()
-        if device is None:
-            device = torch.get_default_device()
-        self.Xscaler = Xscaler
-        self.Uscaler = Uscaler
-        self.df = df.iloc[begin_idx:end_idx].reset_index(drop=True)
-        t_span = (
-            self.df["dt"].shift(-(prediction_length + context_length)) - self.df["dt"]
-        )
-        N_MEASUREMENTS = (prediction_length + context_length)
-        valid = (t_span - N_MEASUREMENTS * pd.Timedelta(seconds=t_interval)).abs() < pd.Timedelta(seconds=2)
-        self.valid_indices = self.df[valid].index.to_numpy()
-        broadcasted_indices = self.valid_indices[:, np.newaxis] + np.arange(61).reshape(
-            1, -1
-        )
+# class tclab_measured_dataset:
+#     def __init__(
+#         self,
+#         df,
+#         Xscaler,
+#         Uscaler,
+#         train=True,
+#         begin_idx=0,
+#         end_idx=None,
+#         input_cols=["Q1", "Q2", "Ta"],
+#         state_cols=["T1", "T2"],
+#         context_length=1,
+#         prediction_length=60,
+#         t_interval=10,
+#         stride=3,
+#         dtype=None,
+#         device=None,
+#     ):
+#         if end_idx is None:
+#             end_idx = len(df)
+#         if dtype is None:
+#             dtype = torch.get_default_dtype()
+#         if device is None:
+#             device = torch.get_default_device()
+#         self.Xscaler = Xscaler
+#         self.Uscaler = Uscaler
+#         self.df = df.iloc[begin_idx:end_idx].reset_index(drop=True)
+#         t_span = (
+#             self.df["dt"].shift(-(prediction_length + context_length)) - self.df["dt"]
+#         )
+#         N_MEASUREMENTS = (prediction_length + context_length)
+#         valid = (t_span - N_MEASUREMENTS * pd.Timedelta(seconds=t_interval)).abs() < pd.Timedelta(seconds=2)
+#         self.valid_indices = self.df[valid].index.to_numpy()
+#         broadcasted_indices = self.valid_indices[:, np.newaxis] + np.arange(61).reshape(
+#             1, -1
+#         )
 
-        X = self.df.loc[:, state_cols].to_numpy()[broadcasted_indices, :]
-        U = self.df.loc[:, input_cols].to_numpy()[broadcasted_indices, :]
+#         X = self.df.loc[:, state_cols].to_numpy()[broadcasted_indices, :]
+#         U = self.df.loc[:, input_cols].to_numpy()[broadcasted_indices, :]
 
-        X_shape = X.shape
-        U_shape = U.shape
+#         X_shape = X.shape
+#         U_shape = U.shape
 
-        if train:
-            X = self.Xscaler.fit_transform(X.reshape(-1, X_shape[-1])).reshape(X_shape)
-            U = self.Uscaler.fit_transform(U.reshape(-1, U_shape[-1])).reshape(U_shape)
-        else:
-            X = self.Xscaler.transform(X.reshape(-1, X_shape[-1])).reshape(X_shape)
-            U = self.Uscaler.transform(U.reshape(-1, U_shape[-1])).reshape(U_shape)
+#         if train:
+#             X = self.Xscaler.fit_transform(X.reshape(-1, X_shape[-1])).reshape(X_shape)
+#             U = self.Uscaler.fit_transform(U.reshape(-1, U_shape[-1])).reshape(U_shape)
+#         else:
+#             X = self.Xscaler.transform(X.reshape(-1, X_shape[-1])).reshape(X_shape)
+#             U = self.Uscaler.transform(U.reshape(-1, U_shape[-1])).reshape(U_shape)
 
-        X = torch.tensor(X, device=device, dtype=dtype)
-        U = torch.tensor(U, device=device, dtype=dtype)
+#         X = torch.tensor(X, device=device, dtype=dtype)
+#         U = torch.tensor(U, device=device, dtype=dtype)
 
-        # rolling horizon
-        # X = X.unfold(0, prediction_length + context_length, stride).permute(0, 2, 1)
-        # U = U.unfold(0, prediction_length + context_length, stride).permute(0, 2, 1)
+#         # rolling horizon
+#         # X = X.unfold(0, prediction_length + context_length, stride).permute(0, 2, 1)
+#         # U = U.unfold(0, prediction_length + context_length, stride).permute(0, 2, 1)
         
-        # self.X0 = X[:, :context_length, :]
-        # self.X = X[:, context_length:, :]
-        # self.U = U[:, context_length:, :]
-        self.dataset = {
-            "idx": broadcasted_indices,
-            "y": X[:, context_length:, :],
-            "y0": X[:, :context_length, :],
-            "u": U[:, :-context_length, :],
-        }
-        return
+#         # self.X0 = X[:, :context_length, :]
+#         # self.X = X[:, context_length:, :]
+#         # self.U = U[:, context_length:, :]
+#         self.dataset = {
+#             "idx": broadcasted_indices,
+#             "y": X[:, context_length:, :],
+#             "y0": X[:, :context_length, :],
+#             "u": U[:, :-context_length, :],
+#         }
+#         return
     
-    def __len__(self):
-        return len(self.valid_indices)
+#     def __len__(self):
+#         return len(self.valid_indices)
     
-    def __getitem__(self, idx):
-        return {
-            "y0": self.dataset["y0"][idx],
-            "u": self.dataset["u"][idx],
-            "y": self.dataset["y"][idx],
-        }
+#     def __getitem__(self, idx):
+#         return {
+#             "y0": self.dataset["y0"][idx],
+#             "u": self.dataset["u"][idx],
+#             "y": self.dataset["y"][idx],
+#         }
     
-    def rescale_x(self, x):
-        if isinstance(x, torch.Tensor):
-            x = x.detach().cpu().numpy()
-        x_shape = x.shape
-        x = x.reshape(-1, x_shape[-1])
-        x = self.Xscaler.inverse_transform(x)
-        return x.reshape(x_shape)
+#     def rescale_x(self, x):
+#         if isinstance(x, torch.Tensor):
+#             x = x.detach().cpu().numpy()
+#         x_shape = x.shape
+#         x = x.reshape(-1, x_shape[-1])
+#         x = self.Xscaler.inverse_transform(x)
+#         return x.reshape(x_shape)
     
-    def rescale_u(self, u):
-        if isinstance(u, torch.Tensor):
-            u = u.detach().cpu().numpy()
-        u_shape = u.shape
-        u = u.reshape(-1, u_shape[-1])
-        u = self.Uscaler.inverse_transform(u)
-        return u.reshape(u_shape)
+#     def rescale_u(self, u):
+#         if isinstance(u, torch.Tensor):
+#             u = u.detach().cpu().numpy()
+#         u_shape = u.shape
+#         u = u.reshape(-1, u_shape[-1])
+#         u = self.Uscaler.inverse_transform(u)
+#         return u.reshape(u_shape)
     
-    def model_predictions(self, model):
-        y0 = self.dataset["y0"]
-        u = self.dataset["u"]
-        y_pred = model(y0, u)
-        return y_pred
+#     def model_predictions(self, model):
+#         y0 = self.dataset["y0"]
+#         u = self.dataset["u"]
+#         y_pred = model(y0, u)
+#         return y_pred
     
-    def evaluate_model(self, model):
-        y0 = self.dataset["y0"]
-        u = self.dataset["u"]
-        y = self.dataset["y"]
-        y_pred = model(y0, u)
+#     def evaluate_model(self, model):
+#         y0 = self.dataset["y0"]
+#         u = self.dataset["u"]
+#         y = self.dataset["y"]
+#         y_pred = model(y0, u)
 
-        y0 = y0.to("cpu")
-        u = u.to("cpu")
-        y = y.to("cpu")
-        y_pred = y_pred.detach().to("cpu")
+#         y0 = y0.to("cpu")
+#         u = u.to("cpu")
+#         y = y.to("cpu")
+#         y_pred = y_pred.detach().to("cpu")
 
-        y0_shape = y0.shape
-        u_shape = u.shape
-        y_shape = y.shape
-        y_pred_shape = y_pred.shape
+#         y0_shape = y0.shape
+#         u_shape = u.shape
+#         y_shape = y.shape
+#         y_pred_shape = y_pred.shape
 
-        y0 = self.rescale_x(y0.numpy().reshape(-1, y0_shape[-1])).reshape(-1, y0_shape[-2], y0_shape[-1])
-        u = self.rescale_u(u.numpy().reshape(-1, u_shape[-1])).reshape(-1, u_shape[-2], u_shape[-1])
-        y = self.rescale_x(y.numpy().reshape(-1, y_shape[-1])).reshape(-1, y_shape[-2], y_shape[-1])
-        y_pred = self.rescale_x(y_pred.numpy().reshape(-1, y_pred_shape[-1])).reshape(-1, y_pred_shape[-2], y_pred_shape[-1])
+#         y0 = self.rescale_x(y0.numpy().reshape(-1, y0_shape[-1])).reshape(-1, y0_shape[-2], y0_shape[-1])
+#         u = self.rescale_u(u.numpy().reshape(-1, u_shape[-1])).reshape(-1, u_shape[-2], u_shape[-1])
+#         y = self.rescale_x(y.numpy().reshape(-1, y_shape[-1])).reshape(-1, y_shape[-2], y_shape[-1])
+#         y_pred = self.rescale_x(y_pred.numpy().reshape(-1, y_pred_shape[-1])).reshape(-1, y_pred_shape[-2], y_pred_shape[-1])
 
-        L1e = np.mean(np.abs(y - y_pred), axis=(1, 2))
-        L2e = np.sqrt(np.mean((y - y_pred) ** 2, axis=(1, 2)))
+#         L1e = np.mean(np.abs(y - y_pred), axis=(1, 2))
+#         L2e = np.sqrt(np.mean((y - y_pred) ** 2, axis=(1, 2)))
 
-        results = {
-            "y0": y0,
-            "u": u,
-            "y": y,
-            "y_pred": y_pred,
-            "L1e": L1e,
-            "L2e": L2e,
-        }
-        return results
+#         results = {
+#             "y0": y0,
+#             "u": u,
+#             "y": y,
+#             "y_pred": y_pred,
+#             "L1e": L1e,
+#             "L2e": L2e,
+#         }
+#         return results
 
 def rescale_data(data, model, Xscaler, Uscaler):
     y0 = data["y0"]
     u = data["u"]
-    y = data["y"]
+    y = data["y1"]
     y_pred = model(y0, u)
 
     y0 = y0.to("cpu")
@@ -340,7 +336,7 @@ class TCLabTrainer(tune.Trainable):
         self.config.update(config)
     
     def _init_model(self, config):
-        self.model = Exogenous_RkRNN(state_dim=2, input_dim=2, hidden_size=32)
+        self.model = Exogenous_RkRNN(state_dim=2, input_dim=3, hidden_size=32)
         if config["initialize_weights"] == "random":
             self.model.apply(init_weights)
         elif config["initialize_weights"] == "finetune":
@@ -364,17 +360,18 @@ class TCLabTrainer(tune.Trainable):
         
     def _setup(self, config, data):
         """the portion of setup that will be the same in child classes."""
+        # initialize and fit scalers
         self.x_scaler = StandardScaler()
         self.u_scaler = StandardScaler()
         if config.get("scaling"):
-            # self.x_scaler.fit(data["train_y"])
-            # self.u_scaler.fit(data["train_u"].reshape(-1, 1))
+            self.x_scaler.fit(data.iloc[config["train_begin_idx"]:config["train_end_idx"]][["T1", "T2"]].to_numpy())
+            self.u_scaler.fit(data.iloc[config["train_begin_idx"]:config["train_end_idx"]][["Q1", "Q2", "Ta"]].to_numpy())
             pass
         else:
             self.x_scaler.scale_ = np.ones(2)
             self.x_scaler.mean_ = np.zeros(2)
-            self.u_scaler.scale_ = np.ones(2)
-            self.u_scaler.mean_ = np.zeros(2)
+            self.u_scaler.scale_ = np.ones(3)
+            self.u_scaler.mean_ = np.zeros(3)
         if config.get("x_scale", False):
             self.x_scaler.scale_ = config.get("x_scale")
         if config.get("x_mean", False):
@@ -383,47 +380,37 @@ class TCLabTrainer(tune.Trainable):
             self.u_scaler.scale_ = config.get("u_scale")
         if config.get("u_mean", False):
             self.u_scaler.mean_ = config.get("u_mean")
-        self.train_dataset = tclab_measured_dataset(
+        
+        # create datasts and dataloaders
+        self.train_dataset = format_data(
             data,
             self.x_scaler,
             self.u_scaler,
             begin_idx=config["train_begin_idx"],
             end_idx=config["train_end_idx"],
-            train=True,
-            input_horizon=1,
-            output_horizon=60,
-            name="train",
             device=torch.get_default_device(),
             dtype=torch.get_default_dtype(),
         )
-        self.val_dataset = tclab_measured_dataset(
+        self.val_dataset = format_data(
             data,
             self.x_scaler,
             self.u_scaler,
             begin_idx=config["val_begin_idx"],
             end_idx=config["val_end_idx"],
-            train=False,
-            input_horizon=1,
-            output_horizon=60,
-            name="val",
             device=torch.get_default_device(),
             dtype=torch.get_default_dtype(),
         )
-        self.test_dataset = tclab_measured_dataset(
+        self.test_dataset = format_data(
             data,
             self.x_scaler,
             self.u_scaler,
             begin_idx=config["test_begin_idx"],
             end_idx=config["test_end_idx"],
-            train=False,
-            input_horizon=1,
-            output_horizon=60,
-            name="test",
             device=torch.get_default_device(),
             dtype=torch.get_default_dtype(),
         )
         self.train_dataloader = torch.utils.data.DataLoader(
-            self.train_dataset["dataset"],
+            TCLabDataset(self.train_dataset),
             batch_size=config.get("batch_size"),
             shuffle=True,
             worker_init_fn=seed_worker,
@@ -447,9 +434,9 @@ class TCLabTrainer(tune.Trainable):
     def eval(self):
         self.model.eval()
         with torch.no_grad():
-            train_results = self.train_dataset.evaluate_model(self.model)
-            val_results = self.val_dataset.evaluate_model(self.model)
-            test_results = self.test_dataset.evaluate_model(self.model)
+            train_results = get_results_dict(self.model, self.train_dataset, self.x_scaler, self.u_scaler, prefix="train")
+            val_results = get_results_dict(self.model, self.val_dataset, self.x_scaler, self.u_scaler, prefix="val")
+            test_results = get_results_dict(self.model, self.test_dataset, self.x_scaler, self.u_scaler, prefix="test")
         results = {
             "train_L1e": np.mean(train_results["train_L1e"]),
             "train_L2e": np.mean(train_results["train_L2e"]),
