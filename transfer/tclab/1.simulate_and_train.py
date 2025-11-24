@@ -54,7 +54,8 @@ else:
     df = pd.read_csv(Path("data").joinpath("tclab_sim_data.csv"))
 
 # train model
-if not MODEL0_PATH.exists():
+# if not MODEL0_PATH.exists():
+if True:
     train_val_index = int(len(df) * 0.8)
     val_test_index = int(len(df) * 0.9)
     
