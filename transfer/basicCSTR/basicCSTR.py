@@ -27,7 +27,7 @@ from tqdm import tqdm
 # print(f"Using device: {device}")
 # torch.set_default_device(device)
 
-from sekf.modeling import Exogenous_RkRNN, init_weights, get_jacobian, seed_worker, get_parameter_gradient_vector, get_parameter_vector, g
+from sekf.modeling import Exogenous_RkRNN, init_weights, get_jacobian, mask_fn, seed_worker, get_parameter_gradient_vector, get_parameter_vector, g
 from sekf.optimizers import SEKF, maskedAdam
 from sekf.utils import zip_dir
 
