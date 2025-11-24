@@ -60,7 +60,7 @@ if not MODEL0_PATH.exists():
     
     config = {
         "lr": tune.loguniform(1e-6, 1e-1),
-        "batch_size": tune.choice([16, 32, 64, 128]),
+        "batch_size": tune.choice([2**10, 2**12, 2**14, 2**16]),
         "lr_patience": tune.choice([10, 20, 50, 100]),
         "lr_factor": tune.uniform(0.1, 0.9),
         "scaling": tune.choice([True, False]),
@@ -70,12 +70,21 @@ if not MODEL0_PATH.exists():
         "val_end_idx": val_test_index,
         "test_begin_idx": val_test_index,
         "test_end_idx": len(df),
+        "train_dataset_stride": 6
     }
     
     scheduler = ASHAScheduler(
         max_t=500,
         grace_period=20,
         reduction_factor=2
+    )
+    
+    trial_stopper = TrialPlateauStopper(
+        metric="val_loss",
+        std=0.00001,
+        num_results=10,
+        grace_period=20,
+        mode="min",
     )
     
     tuner = tune.Tuner(
@@ -87,19 +96,22 @@ if not MODEL0_PATH.exists():
             metric="val_L2e",
             mode="min",
             scheduler=scheduler,
-            max_concurrent_trials=4,
+            max_concurrent_trials=2,
             num_samples=50,
         ),
         param_space=config,
         run_config=tune.RunConfig(
-            verbose=1,
-            name="basicCSTR_training",
+            verbose=0,
+            name="TCLabTraining",
             # storage_path=RAY_STORAGE_PATH,
             checkpoint_config=tune.CheckpointConfig(
                 num_to_keep=1,
                 checkpoint_frequency=100,
                 checkpoint_at_end=True,
             ),
+            stop=trial_stopper,
+            # storage_path=RAY_STORAGE_PATH
+            storage_path="/tmp/"
         ),
     )
     results = tuner.fit()
