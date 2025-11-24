@@ -9,6 +9,50 @@ from .modeling import mask_fn, get_jacobian
 logger = logging.getLogger(__name__)
 
 
+class PersistentSampler:
+    """Sampler that maintains position across training intervals."""
+    
+    def __init__(self, dataset_size: int, seed: int = 42):
+        self.dataset_size = dataset_size
+        self.indices = np.arange(dataset_size)
+        self.rng = np.random.default_rng(seed)
+        self.rng.shuffle(self.indices)
+        self.position = 0
+        self.epochs_completed = 0
+        self.samples_seen = 0
+    
+    def get_batch_indices(self, batch_size: int) -> np.ndarray:
+        # Handle wrap-around
+        if self.position + batch_size > self.dataset_size:
+            self.rng.shuffle(self.indices)
+            self.position = 0
+            self.epochs_completed += 1
+        
+        batch_idx = self.indices[self.position:self.position + batch_size]
+        self.position += batch_size
+        self.samples_seen += batch_size
+        return batch_idx
+    
+    @property
+    def effective_epochs(self) -> float:
+        return self.samples_seen / self.dataset_size
+    
+    def state_dict(self) -> Dict[str, Any]:
+        return {
+            "indices": self.indices.copy(),
+            "rng_state": self.rng.bit_generator.state,
+            "position": self.position,
+            "epochs_completed": self.epochs_completed,
+            "samples_seen": self.samples_seen,
+        }
+    
+    def load_state_dict(self, state: Dict[str, Any]):
+        self.indices = state["indices"]
+        self.rng.bit_generator.state = state["rng_state"]
+        self.position = state["position"]
+        self.epochs_completed = state["epochs_completed"]
+        self.samples_seen = state["samples_seen"]
+
 class basic_optimizer(torch.optim.Optimizer):
     """Base class for my optimizers that includes parameter access and setting utilities"""
 
