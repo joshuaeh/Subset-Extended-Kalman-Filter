@@ -18,6 +18,7 @@ from tqdm import tqdm
 
 from sekf.modeling import Exogenous_RkRNN, init_weights, get_jacobian, seed_worker, g, get_parameter_vector, cosine_similarity
 from sekf.optimizers import maskedAdam, SEKF
+from sekf.utils import zip_dir
 
 rng = np.random.default_rng(42)
 colors = sns.color_palette("colorblind", 10)
@@ -26,6 +27,26 @@ MEASURED_DATA_FILENAME = "tclab_measured_data.csv"
 MODEL_FILENAME = "tclab_model.pth"
 MODEL0_PATH = Path("results").joinpath(MODEL_FILENAME)
 OPTIMIZER_FILENAME = "tclab_optimizer.pth"
+RESULTS_DIR = Path("results")
+RESULTS_DIR.mkdir(exist_ok=True)
+ALL_TRIALS_BASE_FILENAME = "all_trials_results.csv"
+BEST_RESULT_BASE_FILENAME = "best_result.csv"
+RAY_STORAGE_PATH = "/home1/08940/joshuaeh/SCRATCH/Subset-Extended-Kalman-Filter/transfer/tclab/data/ray_results"
+
+MEASUREMENTS_PER_DAY = 6 * 60 * 24  # 8640
+INITIALIZATION = {
+    "retrain": "random",
+    "finetune": "finetune",
+}
+DAYS = 5
+DATA_DIM = {
+    "0.25hr": 15 * 6,
+    "1hr": 60 * 6,
+    "4hr": 4 * 60 * 6,
+    "12hr": 12 * 60 * 6,
+    "24hr": 24 * 60 * 6,
+}
+
 
 # simulated model
 Ua = 10  # W/m^2 K
@@ -388,6 +409,7 @@ class TCLabTrainer(tune.Trainable):
             self.u_scaler,
             begin_idx=config["train_begin_idx"],
             end_idx=config["train_end_idx"],
+            stride=config.get("train_dataset_stride", 1),
             device=torch.get_default_device(),
             dtype=torch.get_default_dtype(),
         )
@@ -411,7 +433,8 @@ class TCLabTrainer(tune.Trainable):
         )
         self.train_dataloader = torch.utils.data.DataLoader(
             TCLabDataset(self.train_dataset),
-            batch_size=config.get("batch_size"),
+            batch_size=min(config.get("batch_size"), self.train_dataset["y0"].shape[0]),
+            drop_last=True,
             shuffle=True,
             worker_init_fn=seed_worker,
             generator=g
@@ -514,3 +537,135 @@ class TCLabTrainer(tune.Trainable):
         """Cleanup resources."""
         # No specific cleanup needed for this trainer
         self.save()
+
+default_config_SEKF = {
+    "batch_size": 1,
+    "initialize_weights": "finetune",  # or "random"
+    "max_epochs": 1000,
+    "mask_fn_quantile_thresh": None,
+    "R": 0.1,
+    "Q": 0.1,
+    "p0": 100.0,
+    "log_frequency": None,
+}
+
+class TCLabTrainer_SEKF(TCLabTrainer):
+    """Trainer for SEKF specifically."""
+
+    def _set_config(self, config):
+        self.config = default_config_SEKF | config
+        return
+
+    def _init_optimizer(self, config):
+        self.optimizer = SEKF(
+            self.model.parameters(),
+            R=config.get("R"),
+            p0=config.get("p0", 100),
+            q=config.get("Q"),
+            mask_fn_quantile_thresh=config.get("mask_fn_quantile_thresh", 0.0),
+        )
+
+    def _scheduler(self, config):
+        return SEKF_scheduler(self.optimizer)
+
+    def setup(self, config, data):
+        self._set_config(config)
+        self._init_model(self.config)
+        self._init_optimizer(self.config)
+        self.loss_fn = nn.MSELoss()
+        self.scheduler = self._scheduler(self.config)
+        self._setup(config, data)
+
+    def _optimizer_step(self, batch):
+        """Performs a single step of the SEKF optimizer."""
+        y_pred = self.model(batch["y0"], batch["u"])
+        e = batch["y1"] - y_pred
+        if torch.isnan(e).any():
+            self.reset()
+
+        if self.config.get("mask_fn_quantile_thresh", None) is not None:
+            loss = self.loss_fn(y_pred, batch["y1"])
+            loss.backward()
+            grad_loss = get_parameter_gradient_vector(self.model)
+            mask = mask_fn(grad_loss, self.config.get("mask_fn_quantile_thresh"))
+        else:
+            mask = None
+        J = get_jacobian(self.model, (batch["y0"], batch["u"]))
+        self.optimizer.step(e, J, mask=mask)
+
+default_config_LBFGS = {
+    "batch_size": 1,
+    "initialize_weights": "finetune",  # or "random"
+    "max_epochs": 500,
+    "lr": 1.0,
+    "lr_max_iter": 20,
+    "lr_history_size": 10,
+    "lr_patience": 20,
+    "lr_factor": 0.5,
+}
+
+class TCLabTrainer_LBFGS(TCLabTrainer):
+    """Trainer for LBFGS specifically."""
+
+    def _set_config(self, config):
+        self.config = default_config_LBFGS | config
+        return
+
+    def _init_optimizer(self, config):
+        self.optimizer = torch.optim.LBFGS(
+            self.model.parameters(),
+            lr=config.get("lr", 1.0),
+            max_iter=config.get("lr_max_iter", 20),
+            history_size=config.get("lr_history_size", 10),
+        )
+
+    def _scheduler(self, config):
+        return optim.lr_scheduler.ReduceLROnPlateau(
+            self.optimizer,
+            "min",
+            patience=self.config.get("lr_patience"),
+            factor=self.config.get("lr_factor"),
+        )
+
+    def setup(self, config, data):
+        self._set_config(config)
+        self._init_model(self.config)
+        self._init_optimizer(self.config)
+        self.loss_fn = nn.MSELoss()
+        self.scheduler = self._scheduler(self.config)
+        self._setup(config, data)
+
+    def _optimizer_step(self, batch):
+        """Performs a single step of the LBFGS optimizer."""
+
+        def closure():
+            self.optimizer.zero_grad()
+            y_pred = self.model(batch["y0"], batch["u"])
+            loss = self.loss_fn(y_pred, batch["y1"])
+            if torch.isnan(loss).any():
+                self.reset()
+            loss.backward()
+            return loss
+
+        self.optimizer.step(closure)
+
+
+class SEKF_scheduler:
+    def __init__(self, optimizer):
+        self.optimizer = optimizer
+        self.lowest_val_loss = float("inf")
+        self.patience_counter = 0
+
+    def step(self, val_loss):
+        if val_loss < self.lowest_val_loss:
+            self.lowest_val_loss = val_loss
+            self.patience_counter = 0
+        else:
+            self.patience_counter += 1
+
+        if self.patience_counter >= 20:
+            pass
+            # Implement logic to reduce Q or adjust optimizer parameters
+
+    def get_last_lr(self):
+        return [1.0]
