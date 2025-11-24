@@ -117,3 +117,32 @@ if not MODEL0_PATH.exists():
     results = tuner.fit()
     
     best_result = results.get_best_result("val_L2e", "min")
+    
+    # save metrics csvs
+    print(f"Best trial config: {best_result.config}")
+    print(f"Best trial final validation loss: {best_result.metrics}")
+    metrics_df = results.get_dataframe()
+    metrics_df.to_csv(
+        str(RESULTS_DIR.joinpath("training", ALL_TRIALS_BASE_FILENAME))
+    )
+    best_result_df = best_result.metrics_dataframe
+    best_result_df.to_csv(
+        str(RESULTS_DIR.joinpath("training", BEST_RESULT_BASE_FILENAME))
+    )
+    # move model weights to standard location
+    print(f"{best_result.path=}")
+    print(f"{best_result.checkpoint=}")
+    with best_result.checkpoint.as_directory() as checkpoint_dir:
+        model_path = Path(checkpoint_dir).joinpath(MODEL_FILENAME)
+        target_path = MODEL0_PATH
+        shutil.copy(str(model_path), str(target_path))
+
+    # # compress all results directories and move to case_dir
+    # shutil.move(
+    #     results.experiment_path, RESULTS_DIR.joinpath("training", "ray_results")
+    # )
+    # compress all results directories and move to case_dir
+    zip_dir(
+        results.experiment_path, RESULTS_DIR.joinpath("training", "ray_results")
+    )
+
