@@ -17,7 +17,7 @@ from torch import nn, optim
 from tqdm import tqdm
 
 from sekf.modeling import Exogenous_RkRNN, init_weights, get_jacobian, seed_worker, g, get_parameter_vector, cosine_similarity
-from sekf.optimizers import maskedAdam, SEKF
+from sekf.optimizers import PersistentSampler, maskedAdam, SEKF
 from sekf.utils import zip_dir
 
 rng = np.random.default_rng(42)
@@ -151,140 +151,6 @@ def format_data(
     }
     return data
 
-# class tclab_measured_dataset:
-#     def __init__(
-#         self,
-#         df,
-#         Xscaler,
-#         Uscaler,
-#         train=True,
-#         begin_idx=0,
-#         end_idx=None,
-#         input_cols=["Q1", "Q2", "Ta"],
-#         state_cols=["T1", "T2"],
-#         context_length=1,
-#         prediction_length=60,
-#         t_interval=10,
-#         stride=3,
-#         dtype=None,
-#         device=None,
-#     ):
-#         if end_idx is None:
-#             end_idx = len(df)
-#         if dtype is None:
-#             dtype = torch.get_default_dtype()
-#         if device is None:
-#             device = torch.get_default_device()
-#         self.Xscaler = Xscaler
-#         self.Uscaler = Uscaler
-#         self.df = df.iloc[begin_idx:end_idx].reset_index(drop=True)
-#         t_span = (
-#             self.df["dt"].shift(-(prediction_length + context_length)) - self.df["dt"]
-#         )
-#         N_MEASUREMENTS = (prediction_length + context_length)
-#         valid = (t_span - N_MEASUREMENTS * pd.Timedelta(seconds=t_interval)).abs() < pd.Timedelta(seconds=2)
-#         self.valid_indices = self.df[valid].index.to_numpy()
-#         broadcasted_indices = self.valid_indices[:, np.newaxis] + np.arange(61).reshape(
-#             1, -1
-#         )
-
-#         X = self.df.loc[:, state_cols].to_numpy()[broadcasted_indices, :]
-#         U = self.df.loc[:, input_cols].to_numpy()[broadcasted_indices, :]
-
-#         X_shape = X.shape
-#         U_shape = U.shape
-
-#         if train:
-#             X = self.Xscaler.fit_transform(X.reshape(-1, X_shape[-1])).reshape(X_shape)
-#             U = self.Uscaler.fit_transform(U.reshape(-1, U_shape[-1])).reshape(U_shape)
-#         else:
-#             X = self.Xscaler.transform(X.reshape(-1, X_shape[-1])).reshape(X_shape)
-#             U = self.Uscaler.transform(U.reshape(-1, U_shape[-1])).reshape(U_shape)
-
-#         X = torch.tensor(X, device=device, dtype=dtype)
-#         U = torch.tensor(U, device=device, dtype=dtype)
-
-#         # rolling horizon
-#         # X = X.unfold(0, prediction_length + context_length, stride).permute(0, 2, 1)
-#         # U = U.unfold(0, prediction_length + context_length, stride).permute(0, 2, 1)
-        
-#         # self.X0 = X[:, :context_length, :]
-#         # self.X = X[:, context_length:, :]
-#         # self.U = U[:, context_length:, :]
-#         self.dataset = {
-#             "idx": broadcasted_indices,
-#             "y": X[:, context_length:, :],
-#             "y0": X[:, :context_length, :],
-#             "u": U[:, :-context_length, :],
-#         }
-#         return
-    
-#     def __len__(self):
-#         return len(self.valid_indices)
-    
-#     def __getitem__(self, idx):
-#         return {
-#             "y0": self.dataset["y0"][idx],
-#             "u": self.dataset["u"][idx],
-#             "y": self.dataset["y"][idx],
-#         }
-    
-#     def rescale_x(self, x):
-#         if isinstance(x, torch.Tensor):
-#             x = x.detach().cpu().numpy()
-#         x_shape = x.shape
-#         x = x.reshape(-1, x_shape[-1])
-#         x = self.Xscaler.inverse_transform(x)
-#         return x.reshape(x_shape)
-    
-#     def rescale_u(self, u):
-#         if isinstance(u, torch.Tensor):
-#             u = u.detach().cpu().numpy()
-#         u_shape = u.shape
-#         u = u.reshape(-1, u_shape[-1])
-#         u = self.Uscaler.inverse_transform(u)
-#         return u.reshape(u_shape)
-    
-#     def model_predictions(self, model):
-#         y0 = self.dataset["y0"]
-#         u = self.dataset["u"]
-#         y_pred = model(y0, u)
-#         return y_pred
-    
-#     def evaluate_model(self, model):
-#         y0 = self.dataset["y0"]
-#         u = self.dataset["u"]
-#         y = self.dataset["y"]
-#         y_pred = model(y0, u)
-
-#         y0 = y0.to("cpu")
-#         u = u.to("cpu")
-#         y = y.to("cpu")
-#         y_pred = y_pred.detach().to("cpu")
-
-#         y0_shape = y0.shape
-#         u_shape = u.shape
-#         y_shape = y.shape
-#         y_pred_shape = y_pred.shape
-
-#         y0 = self.rescale_x(y0.numpy().reshape(-1, y0_shape[-1])).reshape(-1, y0_shape[-2], y0_shape[-1])
-#         u = self.rescale_u(u.numpy().reshape(-1, u_shape[-1])).reshape(-1, u_shape[-2], u_shape[-1])
-#         y = self.rescale_x(y.numpy().reshape(-1, y_shape[-1])).reshape(-1, y_shape[-2], y_shape[-1])
-#         y_pred = self.rescale_x(y_pred.numpy().reshape(-1, y_pred_shape[-1])).reshape(-1, y_pred_shape[-2], y_pred_shape[-1])
-
-#         L1e = np.mean(np.abs(y - y_pred), axis=(1, 2))
-#         L2e = np.sqrt(np.mean((y - y_pred) ** 2, axis=(1, 2)))
-
-#         results = {
-#             "y0": y0,
-#             "u": u,
-#             "y": y,
-#             "y_pred": y_pred,
-#             "L1e": L1e,
-#             "L2e": L2e,
-#         }
-#         return results
-
 def rescale_data(data, model, Xscaler, Uscaler):
     y0 = data["y0"]
     u = data["u"]
@@ -315,7 +181,7 @@ def rescale_data(data, model, Xscaler, Uscaler):
     ).reshape(-1, y_pred_shape[-2], y_pred_shape[-1])
     return y0, u, y, y_pred
 
-
+@torch.no_grad()
 def get_results_dict(model, dataset, x_scaler, u_scaler, prefix=""):
     y0, u, y, y_pred = rescale_data(dataset, model, x_scaler, u_scaler)
     if prefix != "":
@@ -331,19 +197,38 @@ def get_results_dict(model, dataset, x_scaler, u_scaler, prefix=""):
     return results
 
 default_config = {
-    "lr": 1e-3,
     "batch_size": 64,
+    "initialize_weights": "random",  # or "finetune"
+    "max_epochs": 1000,
+    "lr": 1e-3,
     "lr_patience": 20,
     "lr_factor": 0.5,
-    "initialize_weights": "random",
-    "scaling": True, # bool
-    "log_frequency": None,
+    "scaling": True,
+    "mask_fn_quantile_thresh": None,
+    "N_batches_per_step": 1,
 }
 
 class TCLabTrainer(tune.Trainable):
     
     def setup(self, config, data):
-        """config must include:
+        """
+        config must include:
+        - initialize_weights: "random" or "finetune"
+        - train_begin_idx: (int)
+        - train_end_idx: (int)
+        - val_begin_idx: (int)
+        - val_end_idx: (int)
+        - test_begin_idx: (int)
+        - test_end_idx: (int)
+        config may include:
+        - lr: learning rate (float) (1e-3)
+        - batch_size: (int) (64)
+        - lr_patience: (int) (20)
+        - lr_factor: (float) (0.5)
+        - scaling: (bool) whether to scale data (True)
+        - mask_fn_quantile_thresh: (float) quantile threshold for masking function (1.0)
+        - N_batches_per_step: (int) number of batches per step (1)
+        - train_dataset_stride: (int) stride for training dataset (1)
         """
         self._set_config(config)
         self._init_model(self.config)
@@ -362,12 +247,14 @@ class TCLabTrainer(tune.Trainable):
             self.model.apply(init_weights)
         elif config["initialize_weights"] == "finetune":
             self.model.load_state_dict(torch.load(MODEL0_PATH))
+        else:
+            raise ValueError("initialize_weights must be 'random' or 'finetune'")
         self.model = self.model.to(torch.get_default_device())
     
     def _init_optimizer(self, config):
         self.optimizer = maskedAdam(
             self.model.parameters(),
-            lr=config.get("lr"),
+            lr=config.get("lr", 1e-3),
             mask_fn_quantile_thresh=config.get("mask_fn_quantile_thresh", 1.0),
         )
         
@@ -375,12 +262,11 @@ class TCLabTrainer(tune.Trainable):
         return torch.optim.lr_scheduler.ReduceLROnPlateau(
             self.optimizer,
             mode="min",
-            factor=config.get("lr_factor"),
-            patience=config.get("lr_patience"),
+            factor=config.get("lr_factor", 0.5),
+            patience=config.get("lr_patience", 20),
         )
         
-    def _setup(self, config, data):
-        """the portion of setup that will be the same in child classes."""
+    def _scaler_config(self, config, data):
         # initialize and fit scalers
         self.x_scaler = StandardScaler()
         self.u_scaler = StandardScaler()
@@ -402,7 +288,10 @@ class TCLabTrainer(tune.Trainable):
         if config.get("u_mean", False):
             self.u_scaler.mean_ = config.get("u_mean")
         
+    def _setup(self, config, data):
+        """the portion of setup that will be the same in child classes."""
         # create datasts and dataloaders
+        self._scaler_config(config, data)
         self.train_dataset = format_data(
             data,
             self.x_scaler,
@@ -431,21 +320,12 @@ class TCLabTrainer(tune.Trainable):
             device=torch.get_default_device(),
             dtype=torch.get_default_dtype(),
         )
-        self.train_dataloader = torch.utils.data.DataLoader(
-            TCLabDataset(self.train_dataset),
-            batch_size=min(config.get("batch_size"), self.train_dataset["y0"].shape[0]),
-            drop_last=True,
-            shuffle=True,
-            worker_init_fn=seed_worker,
-            generator=g
+        self.train_sampler = PersistentSampler(
+            self.train_dataset["y0"].shape[0],
+            seed=42
         )
-        self.train_dataloader_iter = iter(self.train_dataloader)
         self.initial_weights = get_parameter_vector(self.model).detach().cpu().numpy()
         self.data = data
-        self.train_steps = 0
-        self.batches_per_epoch = len(self.train_dataloader)
-        self.total_batches = 0
-        self.total_epochs = 0
         
     def _optimizer_step(self, batch):
         self.optimizer.zero_grad()
@@ -473,29 +353,17 @@ class TCLabTrainer(tune.Trainable):
         }
         return results
     
-    def _next_batch(self):
-        try:
-            batch = next(self.train_dataloader_iter)
-        except StopIteration:
-            self.train_dataloader_iter = iter(self.train_dataloader)
-            batch = next(self.train_dataloader_iter)
-        return batch
-    
     def step(self):
         self.model.train()
-        step_len = self.config.get("log_frequency")
-        if step_len is None:
-            step_len = self.batches_per_epoch
-        for _ in range(step_len):
-            batch = self._next_batch()
+        for _ in range(self.config.get("N_batches_per_step", 1)):
+            batch_idx = self.train_sampler.get_batch_indices(self.config.get("batch_size", 64))
+            batch = {k:v[batch_idx].to(torch.get_default_device()) for k,v in self.train_dataset.items()}
             self._optimizer_step(batch)
         metrics = self.eval()
         self.scheduler.step(metrics["val_L2e"])
-        self.total_batches += step_len
         metrics.update(
             {
-                "training_iteration": self.total_batches,
-                "time": self.total_epochs + step_len / self.batches_per_epoch,
+                "effective_epochs": self.train_sampler.effective_epochs,
             }
         )
         return metrics
@@ -514,18 +382,37 @@ class TCLabTrainer(tune.Trainable):
             Path(tmp_checkpoint_dir).joinpath(OPTIMIZER_FILENAME)
         )
         return
+    
+    def save_sampler_state(self, tmp_checkpoint_dir):
+        """Saves the state of the sampler."""
+        torch.save(
+            self.train_sampler.state_dict(),
+            Path(tmp_checkpoint_dir).joinpath("sampler_state.pth")
+        )
+        return
+    
+    def load_sampler_state(self, tmp_checkpoint_dir):
+        """Loads the state of the sampler."""
+        self.train_sampler.load_state_dict(
+            torch.load(
+                Path(tmp_checkpoint_dir).joinpath("sampler_state.pth")
+            )
+        )
+        return
 
     def save_checkpoint(self, tmp_checkpoint_dir):
         checkpoint_path = Path(tmp_checkpoint_dir).joinpath(MODEL_FILENAME)
         torch.save(self.model.state_dict(), checkpoint_path)
         # Save optimizer state if needed
         self.save_optimizer_state(tmp_checkpoint_dir)
+        self.save_sampler_state(tmp_checkpoint_dir)
         return tmp_checkpoint_dir
 
     def load_checkpoint(self, tmp_checkpoint_dir):
         checkpoint_path = Path(tmp_checkpoint_dir).joinpath(MODEL_FILENAME)
         self.model.load_state_dict(torch.load(checkpoint_path))
         self.load_optimizer_state(tmp_checkpoint_dir)
+        self.load_sampler_state(tmp_checkpoint_dir)
         return
 
     def reset_config(self, new_config):
@@ -560,9 +447,9 @@ class TCLabTrainer_SEKF(TCLabTrainer):
         self.optimizer = SEKF(
             self.model.parameters(),
             R=config.get("R"),
-            p0=config.get("p0", 100),
+            p0=config.get("p0"),
             q=config.get("Q"),
-            mask_fn_quantile_thresh=config.get("mask_fn_quantile_thresh", 0.0),
+            mask_fn_quantile_thresh=config.get("mask_fn_quantile_thresh"),
         )
 
     def _scheduler(self, config):

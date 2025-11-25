@@ -61,7 +61,7 @@ if True:
     
     config = {
         "lr": tune.loguniform(1e-6, 1e-1),
-        "batch_size": tune.choice([2**10, 2**12, 2**14, 2**16]),
+        "batch_size": tune.choice([2**8, 2**10, 2**12]),
         "lr_patience": tune.choice([10, 20, 50, 100]),
         "lr_factor": tune.uniform(0.1, 0.9),
         "scaling": tune.choice([True, False]),
@@ -72,6 +72,8 @@ if True:
         "test_begin_idx": val_test_index,
         "test_end_idx": len(df),
         "train_dataset_stride": 6
+        "N_batches_per_step": 500,
+        
     }
     
     scheduler = ASHAScheduler(
@@ -81,7 +83,7 @@ if True:
     )
     
     trial_stopper = TrialPlateauStopper(
-        metric="val_loss",
+        metric="val_L2e",
         std=0.00001,
         num_results=10,
         grace_period=20,
