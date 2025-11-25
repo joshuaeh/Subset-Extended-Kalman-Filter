@@ -37,6 +37,7 @@ if __name__ == "__main__":
         "adam": {
             "lr": tune.loguniform(1e-6, 1e-1),
             "batch_size": tune.qlograndint(1, data_dim, 2),
+            "N_batches_per_step": 50,
             "lr_patience": tune.choice([10, 20, 50, 100]),
             "lr_factor": tune.uniform(0.1, 0.9),
             "initialize_weights": "random"
@@ -48,12 +49,14 @@ if __name__ == "__main__":
             "Q": tune.loguniform(1e-8, 1e-1),
             "p0": tune.choice([0.01, 0.1, 0.5, 1.0, 10.0, 100.0]),
             "batch_size": tune.qlograndint(1, min(20, data_dim), 2),
+            "N_batches_per_step": 50,
             # "mask_fn_quantile_thresh": tune.uniform(0.0, 1.0),
             "initialize_weights": "random",
         },
         "lbfgs": {
             "lr": tune.loguniform(1e-6, 1e0),
             "batch_size": tune.qlograndint(1, data_dim, 2),
+            "N_batches_per_step": 50,
             "lr_max_iter": tune.choice([5, 10, 20, 50]),
             "lr_history_size": tune.choice([5, 10, 20]),
             "lr_patience": tune.choice([10, 20, 50, 100]),
@@ -110,7 +113,7 @@ if __name__ == "__main__":
                     trial_stopper = TrialPlateauStopper(
                         metric="val_loss",
                         std=0.00001,
-                        num_results=50,
+                        num_results=10,
                         grace_period=50,
                         mode="min",
                     )
@@ -132,7 +135,8 @@ if __name__ == "__main__":
                         run_config=tune.RunConfig(
                             verbose=0,
                             name=f"CSTR_retrain_month{month+1}_days{training_days}_{method}",
-                            storage_path=RAY_STORAGE_PATH,
+                            # storage_path=RAY_STORAGE_PATH,
+                            storage_path="/tmp/"
                             checkpoint_config=tune.CheckpointConfig(
                                 num_to_keep=1,
                                 checkpoint_frequency=1000,

@@ -31,6 +31,7 @@ if __name__ == "__main__":
         "adam": {
             "lr": tune.loguniform(1e-6, 1e-1),
             "batch_size": tune.qlograndint(1, data_dim, 2),
+            "N_batches_per_step": 50,
             "lr_patience": tune.choice([10, 20, 50, 100]),
             "lr_factor": tune.uniform(0.1, 0.9),
             "mask_fn_quantile_thresh": tune.uniform(0.0, 1.0),
@@ -41,12 +42,14 @@ if __name__ == "__main__":
             "Q": tune.choice([0, 1e-6, 1e-4, 1e-2, 1e-1]),
             "p0": tune.choice([0.01, 0.1, 0.5, 1.0, 10.0, 100.0]),
             "batch_size": tune.qlograndint(1, min(20, data_dim), 2),
+            "N_batches_per_step": 50,
             "mask_fn_quantile_thresh": tune.uniform(0.0, 1.0),
             "initialize_weights": "finetune",
         },
         "lbfgs": {
             "lr": tune.loguniform(1e-6, 1e0),
             "batch_size": tune.qlograndint(1, data_dim, 2),
+            "N_batches_per_step": 50,
             "lr_max_iter": tune.choice([5, 10, 20, 50]),
             "lr_history_size": tune.choice([5, 10, 20]),
             "lr_patience": tune.choice([10, 20, 50, 100]),

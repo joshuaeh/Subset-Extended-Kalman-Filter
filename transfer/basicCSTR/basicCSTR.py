@@ -28,7 +28,7 @@ from tqdm import tqdm
 # torch.set_default_device(device)
 
 from sekf.modeling import Exogenous_RkRNN, init_weights, get_jacobian, mask_fn, seed_worker, get_parameter_gradient_vector, get_parameter_vector, g
-from sekf.optimizers import SEKF, maskedAdam
+from sekf.optimizers import PersistentSampler, SEKF, maskedAdam
 from sekf.utils import zip_dir
 
 default_rng = np.random.default_rng(42)
@@ -450,11 +450,11 @@ def get_case_results(case, x_scaler, u_scaler, *datasets):
 default_config = {
     "lr": 1e-3,
     "batch_size": 64,
+    "N_batches_per_step": 50,
     "lr_patience": 20,
     "lr_factor": 0.5,
     "initialize_weights": "random",
     "scaling": True, # bool
-    "log_frequency": None,
 }
 
 class BasicCSTRTrainer(tune.Trainable):
@@ -559,20 +559,11 @@ class BasicCSTRTrainer(tune.Trainable):
             name="test",
             device=torch.get_default_device(),
         )
-        self.train_dataloader = torch.utils.data.DataLoader(
-            self.train_dataset["dataset"],
-            batch_size=config.get("batch_size"),
-            shuffle=True,
-            worker_init_fn=seed_worker,
-            generator=g
+        self.train_sampler = PersistentSampler(
+            self.train_dataset["dataset"]["y1"].shape[0],
         )
-        self.train_dataloader_iter = iter(self.train_dataloader)
         self.initial_weights = get_parameter_vector(self.model).detach().cpu().numpy()
         self.data = data
-        self.train_steps = 0
-        self.batches_per_epoch = len(self.train_dataloader)
-        self.total_batches = 0
-        self.total_epochs = 0
         
     def _optimizer_step(self, batch):
         self.optimizer.zero_grad()
@@ -618,20 +609,10 @@ class BasicCSTRTrainer(tune.Trainable):
         }
         return results
     
-    def _next_batch(self):
-        try:
-            batch = next(self.train_dataloader_iter)
-        except StopIteration:
-            self.train_dataloader_iter = iter(self.train_dataloader)
-            batch = next(self.train_dataloader_iter)
-        return batch
-    
     def step(self):
         self.model.train()
-        step_len = self.config.get("log_frequency")
-        if step_len is None:
-            step_len = self.batches_per_epoch
-        for _ in range(step_len):
+        for _ in range(self.config.get("N_batches_per_step", 1)):
+            batch_idx = self.train_sampler.sample_batch_indices(self.config.get("batch_size"))
             batch = self._next_batch()
             self._optimizer_step(batch)
         metrics = self.eval()
@@ -685,6 +666,7 @@ class BasicCSTRTrainer(tune.Trainable):
         
 default_config_SEKF = {
     "batch_size": 1,
+    "N_batches_per_step": 10,
     "initialize_weights": "finetune",  # or "random"
     "max_epochs": 1000,
     "mask_fn_quantile_thresh": None,
@@ -740,6 +722,7 @@ class CSTRTrainer_SEKF(BasicCSTRTrainer):
 
 default_config_LBFGS = {
     "batch_size": 1,
+    "N_batches_per_step": 10,
     "initialize_weights": "finetune",  # or "random"
     "max_epochs": 500,
     "lr": 1.0,
