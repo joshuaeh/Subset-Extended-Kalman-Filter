@@ -25,7 +25,7 @@ from sekf.modeling import (
     mask_fn,
     seed_worker,
 )
-from sekf.optimizers import SEKF, maskedAdam
+from sekf.optimizers import PersistentSampler, SEKF, maskedAdam
 from sekf.utils import zip_dir
 from tqdm import tqdm
 
@@ -113,6 +113,7 @@ class MLP(nn.Module):
 
 default_config = {
     "batch_size": 64,
+    "N_batches_per_step": 500,
     "initialize_weights": "random",  # or "finetune"
     "lr": 1e-3,
     "lr_patience": 20,
@@ -124,6 +125,7 @@ default_config = {
 
 default_config_SEKF = {
     "batch_size": 1,
+    "N_batches_per_step": 500,
     "initialize_weights": "finetune",  # or "random"
     "max_epochs": 1000,
     "mask_fn_quantile_thresh": None,
@@ -136,6 +138,7 @@ default_config_SEKF = {
 
 default_config_LBFGS = {
     "batch_size": 1,
+    "N_batches_per_step": 500,
     "initialize_weights": "finetune",  # or "random"
     "max_epochs": 1000,
     "lr": 1.0,
@@ -205,22 +208,12 @@ class DampedSpringTrainer(tune.Trainable):
 
     def _setup(self, config, data):
         """The portion that is common to all optimizers."""
-        self.train_dataloader = torch.utils.data.DataLoader(
-            torch.utils.data.TensorDataset(data["train_x"], data["train_y"]),
-            batch_size=self.config["batch_size"],
-            shuffle=True,
-            # num_workers=1,
-            # persistent_workers=True,
-            worker_init_fn=seed_worker,
-            generator=g,
+        self.train_sampler = PersistentSampler(
+            data["train_x"].shape[0],
+            seed=42
         )
-        self.train_dataloader_iter = iter(self.train_dataloader)
         self.initial_weights = get_parameter_vector(self.model).detach().numpy()
         self.data = data
-        self.train_steps = 0
-        self.batches_per_epoch = len(self.train_dataloader)
-        self.total_batches = 0
-        self.total_epochs = 0
 
     def _optimizer_step(self, x_batch, y_batch):
         """Performs a single step of the masked Adam optimizer."""
@@ -256,30 +249,18 @@ class DampedSpringTrainer(tune.Trainable):
         self.scheduler.step(metrics["val_loss"])
         return metrics
 
-    def _next_batch(self):
-        try:
-            x_batch, y_batch = next(self.train_dataloader_iter)
-        except StopIteration:
-            self.train_dataloader_iter = iter(self.train_dataloader)
-            x_batch, y_batch = next(self.train_dataloader_iter)
-        return x_batch, y_batch
-
     def step(self):
         self.model.train()
-        step_len = self.config.get("log_frequency", None)
-        if step_len is None:
-            step_len = self.batches_per_epoch
-        for _ in range(step_len):
-            x_batch, y_batch = self._next_batch()
+        for _ in range(self.config.get("N_batches_per_step", 1)):
+            batch_idx = self.train_sampler.get_batch_indices(self.config["batch_size"])
+            x_batch = self.data["train_x"][batch_idx]
+            y_batch = self.data["train_y"][batch_idx]
             self._optimizer_step(x_batch, y_batch)
-            # self.total_batches += 1
         metrics = self.eval(self.data)
-        self.total_batches += step_len
         self.scheduler.step(metrics["val_loss"])
         metrics.update(
             {
-                "total_batches": self.total_batches,
-                "total_epochs": self.total_batches // self.batches_per_epoch,
+                "effective_epochs": self.train_sampler.effective_epochs
             }
         )
         return metrics
@@ -298,19 +279,50 @@ class DampedSpringTrainer(tune.Trainable):
             Path(tmp_checkpoint_dir).joinpath(OPTIMIZER_FILENAME)
         )
         return
+    def save_sampler_state(self, tmp_checkpoint_dir):
+        """Saves the state of the sampler."""
+        torch.save(
+            self.train_sampler.state_dict(),
+            Path(tmp_checkpoint_dir).joinpath("sampler_state.pth")
+        )
+        return
+    
+    def load_sampler_state(self, tmp_checkpoint_dir):
+        """Loads the state of the sampler."""
+        self.train_sampler.load_state_dict(
+            torch.load(
+                Path(tmp_checkpoint_dir).joinpath("sampler_state.pth")
+            )
+        )
+        return
 
     def save_checkpoint(self, tmp_checkpoint_dir):
-        checkpoint_path = os.path.join(tmp_checkpoint_dir, MODEL_FILENAME)
+        checkpoint_path = Path(tmp_checkpoint_dir).joinpath(MODEL_FILENAME)
         torch.save(self.model.state_dict(), checkpoint_path)
         # Save optimizer state if needed
         self.save_optimizer_state(tmp_checkpoint_dir)
+        self.save_sampler_state(tmp_checkpoint_dir)
         return tmp_checkpoint_dir
 
     def load_checkpoint(self, tmp_checkpoint_dir):
-        checkpoint_path = os.path.join(tmp_checkpoint_dir, MODEL_FILENAME)
+        checkpoint_path = Path(tmp_checkpoint_dir).joinpath(MODEL_FILENAME)
         self.model.load_state_dict(torch.load(checkpoint_path))
         self.load_optimizer_state(tmp_checkpoint_dir)
+        self.load_sampler_state(tmp_checkpoint_dir)
         return
+
+    # def save_checkpoint(self, tmp_checkpoint_dir):
+    #     checkpoint_path = os.path.join(tmp_checkpoint_dir, MODEL_FILENAME)
+    #     torch.save(self.model.state_dict(), checkpoint_path)
+    #     # Save optimizer state if needed
+    #     self.save_optimizer_state(tmp_checkpoint_dir)
+    #     return tmp_checkpoint_dir
+
+    # def load_checkpoint(self, tmp_checkpoint_dir):
+    #     checkpoint_path = os.path.join(tmp_checkpoint_dir, MODEL_FILENAME)
+    #     self.model.load_state_dict(torch.load(checkpoint_path))
+    #     self.load_optimizer_state(tmp_checkpoint_dir)
+    #     return
 
     def reset_config(self, new_config):
         """Reset the configuration of the trainer."""
@@ -336,7 +348,7 @@ class DampedSpringTrainer_SEKF(DampedSpringTrainer):
             R=config.get("R"),
             p0=config.get("p0", 100),
             q=config.get("Q"),
-            mask_fn_quantile_thresh=config.get("mask_fn_quantile_thresh", 0.0),
+            mask_fn_quantile_thresh=config.get("mask_fn_quantile_thresh", 1.0),
         )
 
     def _scheduler(self, config):

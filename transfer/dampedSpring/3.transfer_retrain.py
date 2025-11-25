@@ -67,6 +67,7 @@ if __name__ == "__main__":
                     config = {
                         "lr": tune.loguniform(1e-6, 1e-1),
                         "batch_size": tune.qlograndint(1, data_dim, 2),
+                        "N_batches_per_step": min(50, data_dim),
                         "lr_patience": 10,
                         "lr_factor": tune.uniform(0.0, 1.0),
                         # "mask_fn_quantile_thresh": tune.uniform(0.0, 1.0),
@@ -105,13 +106,14 @@ if __name__ == "__main__":
                         run_config=tune.RunConfig(
                             verbose=1,
                             name=f"dampedSpring_transfer_adam_retrain_{scenario_name}_{data_dim_name(data_dim)}_{get_data_iteration_name(data_iteration)}",
-                            storage_path=RAY_STORAGE_PATH,
+                            # storage_path=RAY_STORAGE_PATH,
                             checkpoint_config=tune.CheckpointConfig(
                                 num_to_keep=1,
                                 checkpoint_frequency=1000,
                                 checkpoint_at_end=True,
                             ),
                             stop=trial_stopper,
+                            storage_path="/tmp/"
                         ),
                     )
                     results = tuner.fit()
@@ -163,6 +165,7 @@ if __name__ == "__main__":
                         "Q": tune.choice([0, 1e-6, 1e-4, 1e-2, 1e-1]),
                         "p0": tune.choice([0.01, 0.1, 0.5, 1.0, 10.0, 100.0]),
                         "batch_size": tune.qlograndint(1, min(20, data_dim), 2),
+                        "N_batches_per_step": min(50, data_dim),
                         # "mask_fn_quantile_thresh": tune.uniform(0.0, 1.0),
                         "initialize_weights": "random",
                     }
@@ -198,6 +201,7 @@ if __name__ == "__main__":
                         param_space=config,
                         run_config=tune.RunConfig(
                             verbose=1,
+                            storage_path="/tmp/"
                             name=f"dampedSpring_transfer_sekf_retrain_{scenario_name}_{data_dim_name(data_dim)}_{get_data_iteration_name(data_iteration)}",
                             checkpoint_config=tune.CheckpointConfig(
                                 num_to_keep=1,
@@ -255,6 +259,7 @@ if __name__ == "__main__":
                     config = {
                         "lr": tune.loguniform(1e-6, 2),
                         "batch_size": tune.qlograndint(1, data_dim, 2),
+                        "N_batches_per_step": min(50, data_dim),
                         "max_iter": tune.choice([5, 20, 50, 100]),
                         "lr_history_size": tune.choice([5, 10, 20, 40]),
                         "lr_patience": tune.choice([10, 20, 40]),
@@ -300,6 +305,7 @@ if __name__ == "__main__":
                                 checkpoint_at_end=True,
                             ),
                             stop=trial_stopper,
+                            storage_path="/tmp/"
                         ),
                     )
                     results = tuner.fit()

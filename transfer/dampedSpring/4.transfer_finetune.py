@@ -67,6 +67,7 @@ if __name__ == "__main__":
                     config = {
                         "lr": tune.loguniform(1e-6, 1e-1),
                         "batch_size": tune.qlograndint(1, data_dim, 2),
+                        "N_batches_per_step": min(50, data_dim),
                         "lr_patience": 10,
                         "lr_factor": tune.uniform(0.0, 1.0),
                         "mask_fn_quantile_thresh": tune.quniform(0.0, 1.0, 0.05),
@@ -105,7 +106,8 @@ if __name__ == "__main__":
                         run_config=tune.RunConfig(
                             verbose=1,
                             name=f"dampedSpring_transfer_adam_retrain_{scenario_name}_{data_dim_name(data_dim)}_{get_data_iteration_name(data_iteration)}",
-                            storage_path=RAY_STORAGE_PATH,
+                            # storage_path=RAY_STORAGE_PATH,
+                            storage_path="/tmp/",
                             checkpoint_config=tune.CheckpointConfig(
                                 num_to_keep=1,
                                 checkpoint_frequency=1000,
@@ -163,6 +165,7 @@ if __name__ == "__main__":
                         "Q": tune.choice([0, 1e-6, 1e-4, 1e-2, 1e-1]),
                         "p0": tune.choice([0.01, 0.1, 0.5, 1.0, 10.0, 100.0]),
                         "batch_size": tune.qlograndint(1, min(20, data_dim), 2),
+                        "N_batches_per_step": min(50, data_dim),
                         "mask_fn_quantile_thresh": tune.quniform(0.0, 1.0, 0.05),
                         "initialize_weights": "finetune",
                     }
@@ -204,6 +207,7 @@ if __name__ == "__main__":
                                 checkpoint_frequency=100,
                                 checkpoint_at_end=True,
                             ),
+                            storage_path="/tmp/",
                             stop=trial_stopper,
                         ),
                     )
@@ -300,6 +304,7 @@ if __name__ == "__main__":
                                 checkpoint_at_end=True,
                             ),
                             stop=trial_stopper,
+                            storage_path="/tmp/",
                         ),
                     )
                     results = tuner.fit()
