@@ -210,7 +210,7 @@ default_config = {
 
 class TCLabTrainer(tune.Trainable):
     
-    def setup(self, config, data):
+    def setup(self, config):
         """
         config must include:
         - initialize_weights: "random" or "finetune"
@@ -220,6 +220,7 @@ class TCLabTrainer(tune.Trainable):
         - val_end_idx: (int)
         - test_begin_idx: (int)
         - test_end_idx: (int)
+        - data_ref: ray object ref to dataframe
         config may include:
         - lr: learning rate (float) (1e-3)
         - batch_size: (int) (64)
@@ -235,7 +236,7 @@ class TCLabTrainer(tune.Trainable):
         self._init_optimizer(self.config)
         self.loss_fn = nn.MSELoss()
         self.scheduler = self._scheduler(self.config)
-        self._setup(config, data)
+        self._setup(config)
         
     def _set_config(self, config):
         self.config = default_config.copy()
@@ -291,6 +292,7 @@ class TCLabTrainer(tune.Trainable):
     def _setup(self, config, data):
         """the portion of setup that will be the same in child classes."""
         # create datasts and dataloaders
+        data = ray.get(self.config["data_ref"])
         self._scaler_config(config, data)
         self.train_dataset = format_data(
             data,
@@ -308,6 +310,7 @@ class TCLabTrainer(tune.Trainable):
             self.u_scaler,
             begin_idx=config["val_begin_idx"],
             end_idx=config["val_end_idx"],
+            stride=config.get("val_dataset_stride", 1),
             device=torch.get_default_device(),
             dtype=torch.get_default_dtype(),
         )
@@ -317,6 +320,7 @@ class TCLabTrainer(tune.Trainable):
             self.u_scaler,
             begin_idx=config["test_begin_idx"],
             end_idx=config["test_end_idx"],
+            stride=config.get("test_dataset_stride", 1),
             device=torch.get_default_device(),
             dtype=torch.get_default_dtype(),
         )
@@ -333,6 +337,7 @@ class TCLabTrainer(tune.Trainable):
         loss = self.loss_fn(y_pred, batch["y1"])
         loss.backward()
         self.optimizer.masked_step()
+        
         
     def eval(self):
         self.model.eval()
@@ -455,13 +460,13 @@ class TCLabTrainer_SEKF(TCLabTrainer):
     def _scheduler(self, config):
         return SEKF_scheduler(self.optimizer)
 
-    def setup(self, config, data):
+    def setup(self, config):
         self._set_config(config)
         self._init_model(self.config)
         self._init_optimizer(self.config)
         self.loss_fn = nn.MSELoss()
         self.scheduler = self._scheduler(self.config)
-        self._setup(config, data)
+        self._setup(config)
 
     def _optimizer_step(self, batch):
         """Performs a single step of the SEKF optimizer."""
@@ -514,13 +519,13 @@ class TCLabTrainer_LBFGS(TCLabTrainer):
             factor=self.config.get("lr_factor"),
         )
 
-    def setup(self, config, data):
+    def setup(self, config):
         self._set_config(config)
         self._init_model(self.config)
         self._init_optimizer(self.config)
         self.loss_fn = nn.MSELoss()
         self.scheduler = self._scheduler(self.config)
-        self._setup(config, data)
+        self._setup(config)
 
     def _optimizer_step(self, batch):
         """Performs a single step of the LBFGS optimizer."""
