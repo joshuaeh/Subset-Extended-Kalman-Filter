@@ -1,6 +1,7 @@
 """retrain NN on target system data, randomly initializing weights each time."""
 
 # imports
+import ray
 from dampedSpring import *
 
 # constants
@@ -44,6 +45,8 @@ if __name__ == "__main__":
                     "test_x": x_test,
                     "test_y": y_test,
                 }
+                
+                data_ref = ray.put(data)
 
                 ### Adam
                 method_dir = data_iteration_dir.joinpath("adam")
@@ -72,14 +75,7 @@ if __name__ == "__main__":
                         "lr_factor": tune.uniform(0.0, 1.0),
                         # "mask_fn_quantile_thresh": tune.uniform(0.0, 1.0),
                         "initialize_weights": "random",
-                    }
-
-                    scheduler = ASHAScheduler(
-                        time_attr="training_iteration",
-                        max_t=1000,
-                        grace_period=50,
-                        reduction_factor=2,
-                    )
+                        "data_ref": data_ref,
 
                     trial_stopper = TrialPlateauStopper(
                         metric="val_loss",
@@ -168,6 +164,7 @@ if __name__ == "__main__":
                         "N_batches_per_step": min(50, data_dim),
                         # "mask_fn_quantile_thresh": tune.uniform(0.0, 1.0),
                         "initialize_weights": "random",
+                        "data_ref": data_ref,
                     }
 
                     scheduler = ASHAScheduler(
@@ -265,6 +262,7 @@ if __name__ == "__main__":
                         "lr_patience": tune.choice([10, 20, 40]),
                         "lr_factor": tune.uniform(0.1, 1.0),
                         "initialize_weights": "random",
+                        "data_ref": data_ref,
                     }
 
                     scheduler = ASHAScheduler(
@@ -330,3 +328,6 @@ if __name__ == "__main__":
                         results.experiment_path,
                         ray_results_path,
                     )
+
+                del data_ref
+    ray.shutdown()

@@ -208,6 +208,7 @@ class DampedSpringTrainer(tune.Trainable):
 
     def _setup(self, config, data):
         """The portion that is common to all optimizers."""
+        self.data = ray.get(config["data_ref"])
         self.train_sampler = PersistentSampler(
             data["train_x"].shape[0],
             seed=42
