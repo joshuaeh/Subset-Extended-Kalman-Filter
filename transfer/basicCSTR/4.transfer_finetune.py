@@ -4,9 +4,13 @@ from basicCSTR import *
 
 # constants
 os.environ["TUNE_WARN_EXCESSIVE_EXPERIMENT_CHECKPOINT_SYNC_THRESHOLD_S"] = "0"
+method = "adam"
 
 # script
 if __name__ == "__main__":
+    if not ray.is_initialized():
+        ray.init(ignore_reinit_error=True)
+    
     # ensure directories exist
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -24,7 +28,12 @@ if __name__ == "__main__":
     print(f"Train u scale: {train_u_scale}")
     print(f"Train u mean: {train_u_mean}")
     
-
+    # ensure directories exist
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    TRANSFER_DATA_PATH = DATA_DIR.joinpath("transfer_data.npz")
+    transfer_results = np.load(TRANSFER_DATA_PATH)
+    
     # --- configs ---
     data_dim = 28 # minimum number of datapoints for batch size
     configs = {
@@ -32,31 +41,39 @@ if __name__ == "__main__":
             "lr": tune.loguniform(1e-6, 1e-1),
             "batch_size": tune.qlograndint(1, data_dim, 2),
             "N_batches_per_step": 50,
-            "lr_patience": tune.choice([10, 20, 50, 100]),
+            # "lr_patience": tune.choice([10, 20, 50, 100]),
+            "lr_patience": 10,
             "lr_factor": tune.uniform(0.1, 0.9),
+            "initialize_weights": "finetune",
             "mask_fn_quantile_thresh": tune.uniform(0.0, 1.0),
-            "initialize_weights": "finetune"
         },
         "sekf": {
-            "R": tune.choice([0, 0.01, 0.05, 0.1, 0.5, 1.0]),
-            "Q": tune.choice([0, 1e-6, 1e-4, 1e-2, 1e-1]),
+            # "R": tune.choice([0, 0.01, 0.05, 0.1, 0.5, 1.0]),
+            # "R": tune.loguniform(1e-8, 1.0),
+            "R": tune.choice([0.01, 0.001, 0.0001]),
+            # "Q": tune.choice([0, 1e-6, 1e-4, 1e-2, 1e-1]),
+            "Q": tune.loguniform(1e-8, 1e-1),
             "p0": tune.choice([0.01, 0.1, 0.5, 1.0, 10.0, 100.0]),
             "batch_size": tune.qlograndint(1, min(20, data_dim), 2),
             "N_batches_per_step": 50,
-            "mask_fn_quantile_thresh": tune.uniform(0.0, 1.0),
+            # "mask_fn_quantile_thresh": tune.uniform(0.0, 1.0),
             "initialize_weights": "finetune",
+            "mask_fn_quantile_thresh": tune.uniform(0.0, 1.0),
         },
         "lbfgs": {
             "lr": tune.loguniform(1e-6, 1e0),
             "batch_size": tune.qlograndint(1, data_dim, 2),
             "N_batches_per_step": 50,
-            "lr_max_iter": tune.choice([5, 10, 20, 50]),
-            "lr_history_size": tune.choice([5, 10, 20]),
-            "lr_patience": tune.choice([10, 20, 50, 100]),
+            # "lr_max_iter": tune.choice([5, 10, 20, 50]),
+            "lr_max_iter": 10,
+            # "lr_history_size": tune.choice([5, 10, 20]),
+            # "lr_patience": tune.choice([10, 20, 50, 100]),
+            "lr_patience": 10,
             "lr_factor": tune.uniform(0.1, 0.9),
             "initialize_weights": "finetune",
         }
     }
+    
     
     trainables = {
         "adam": BasicCSTRTrainer,
@@ -64,20 +81,77 @@ if __name__ == "__main__":
         "lbfgs": CSTRTrainer_LBFGS,
     }
     
+    ASHA_CONFIG = {
+        "time_attr": "training_iteration",
+        "max_t": 100,
+        "reduction_factor": 4,
+    }
+    
+    trial_stopper = TrialPlateauStopper(
+        metric="val_loss",
+        std=0.00001,
+        num_results=10,
+        # grace_period=50,
+        mode="min",
+    )
+    
+    TUNE_CONFIG = {
+        "metric": "val_L2e",
+        "mode": "min",
+        "max_concurrent_trials": 4,
+        "num_samples": 50,
+        # "reuse_actors": True
+    }
+    
+    RUN_CONFIG = {
+        "verbose": 1,
+        "storage_path": "/tmp/",
+        "stop": trial_stopper,
+    }
+    
+    CHECKPOINT_CONFIG = {
+        "num_to_keep": 1,
+        "checkpoint_score_attribute": "val_L2e",
+        "checkpoint_score_order": "min",
+    }
+    
     counter = 0
+    completed_count = 0
     total_runs = 12 * 3 * 3  # months * training_days * methods
     
+    # --- count completed experiments ---
     for month in range(12):
         month_start = sum(MONTH_DAYS[:month]) * 24 * 60
         month_end = month_start + MONTH_DAYS[month] * 24 * 60
         for training_days in [0.25, 1, 7]:
             for method in ["adam", "sekf", "lbfgs"]:
+                TRANSFER_RESULTS_DIR = RESULTS_DIR.joinpath("transfer","finetune", f"month_{month+1}", f"days_{training_days}", method)
+                TRANSFER_RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+                
+                all_trials_path = TRANSFER_RESULTS_DIR.joinpath(ALL_TRIALS_BASE_FILENAME)
+                best_result_path = TRANSFER_RESULTS_DIR.joinpath(BEST_RESULT_BASE_FILENAME)
+                model_weights_path = TRANSFER_RESULTS_DIR.joinpath(MODEL_FILENAME)
+                ray_results_path = TRANSFER_RESULTS_DIR.joinpath("ray_results.zip")
+                
+                if all(p.exists() for p in [all_trials_path, best_result_path, model_weights_path, ray_results_path]):
+                    completed_count += 1
+    
+    print(f"Completed {completed_count} of {total_runs} transfer finetuning experiments.")
+    
     # --- run transfer finetuning experiments ---
     if not ray.is_initialized():
         ray.init(ignore_reinit_error=True)
+    
+    for month in range(12):
+        month_start = sum(MONTH_DAYS[:month]) * 24 * 60
+        month_end = month_start + MONTH_DAYS[month] * 24 * 60
+        for training_days in [0.25, 1, 7]:
+            # for method in ["adam", "sekf", "lbfgs"]:
+            for method in ["adam", "lbfgs"]:
+                TRANSFER_RESULTS_DIR = RESULTS_DIR.joinpath("transfer","finetune", f"month_{month+1}", f"days_{training_days}", method)
                 TRANSFER_RESULTS_DIR.mkdir(parents=True, exist_ok=True)
                 counter += 1
-                print(f"Running transfer finetuning {counter} of {total_runs}: month {month+1}, days {training_days}, method {method}")
+                print(f"Running transfer retraining {counter} of {total_runs}: month {month+1}, days {training_days}, method {method}")
                 
                 all_trials_path = TRANSFER_RESULTS_DIR.joinpath(ALL_TRIALS_BASE_FILENAME)
                 best_result_path = TRANSFER_RESULTS_DIR.joinpath(BEST_RESULT_BASE_FILENAME)
@@ -102,44 +176,25 @@ if __name__ == "__main__":
                     configs[method]["data_ref"] = data_ref
                     
                     scheduler = ASHAScheduler(
-                        time_attr="training_iteration",
-                        max_t=1000,
-                        grace_period=50,
-                        reduction_factor=2,
-                    )
-
-                    trial_stopper = TrialPlateauStopper(
-                        metric="val_loss",
-                        std=0.00001,
-                        num_results=50,
-                        grace_period=50,
-                        mode="min",
+                        **ASHA_CONFIG
                     )
 
                     tuner = tune.Tuner(
                         tune.with_resources(
-                            tune.with_parameters(trainables[method], data=data),
+                            trainables[method],
                             resources={"cpu": 1},
                         ),
                         tune_config=tune.TuneConfig(
-                            metric="val_L2e",
-                            mode="min",
                             scheduler=scheduler,
-                            max_concurrent_trials=2,
-                            num_samples=50,
-                            # reuse_actors=True
+                            **TUNE_CONFIG
                         ),
                         param_space=configs[method],
                         run_config=tune.RunConfig(
-                            verbose=0,
                             name=f"CSTR_retrain_month{month+1}_days{training_days}_{method}",
-                            storage_path=RAY_STORAGE_PATH,
                             checkpoint_config=tune.CheckpointConfig(
-                                num_to_keep=1,
-                                checkpoint_frequency=1000,
-                                checkpoint_at_end=True,
+                                **CHECKPOINT_CONFIG
                             ),
-                            stop=trial_stopper,
+                            **RUN_CONFIG
                         ),
                     )
                     results = tuner.fit()

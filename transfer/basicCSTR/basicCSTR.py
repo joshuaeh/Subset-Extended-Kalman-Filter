@@ -6,6 +6,7 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import ray
 from ray import tune
 from ray.tune.schedulers import ASHAScheduler
 from ray.tune.stopper import TrialPlateauStopper
@@ -460,13 +461,13 @@ default_config = {
 class BasicCSTRTrainer(tune.Trainable):
     """Trainer for basic CSTR model using Ray Tune."""
     
-    def setup(self, config, data):
+    def setup(self, config):
         self._set_config(config)
         self._init_model(self.config)
         self._init_optimizer(self.config)
         self.loss_fn = nn.MSELoss()
         self.scheduler = self._scheduler(self.config)
-        self._setup(config, data)
+        self._setup(config)
         
     def _set_config(self, config):
         self.config = default_config.copy()
@@ -495,8 +496,9 @@ class BasicCSTRTrainer(tune.Trainable):
             patience=config.get("lr_patience"),
         )
         
-    def _setup(self, config, data):
+    def _setup(self, config):
         """the portion of setup that will be the same in child classes."""
+        data = ray.get(self.config["data_ref"])
         self.x_scaler = StandardScaler()
         self.u_scaler = StandardScaler()
         if config.get("scaling"):
@@ -560,7 +562,7 @@ class BasicCSTRTrainer(tune.Trainable):
             device=torch.get_default_device(),
         )
         self.train_sampler = PersistentSampler(
-            self.train_dataset["dataset"]["y1"].shape[0],
+            self.train_dataset["y0"].shape[0],
         )
         self.initial_weights = get_parameter_vector(self.model).detach().cpu().numpy()
         self.data = data
@@ -612,16 +614,20 @@ class BasicCSTRTrainer(tune.Trainable):
     def step(self):
         self.model.train()
         for _ in range(self.config.get("N_batches_per_step", 1)):
-            batch_idx = self.train_sampler.sample_batch_indices(self.config.get("batch_size"))
-            batch = self._next_batch()
+            batch_idx = self.train_sampler.get_batch_indices(self.config.get("batch_size"))
+            batch = {
+                "y0": self.train_dataset["y0"][batch_idx],
+                "u": self.train_dataset["u"][batch_idx],
+                "y1": self.train_dataset["y1"][batch_idx]
+            }
+            
             self._optimizer_step(batch)
         metrics = self.eval()
         self.scheduler.step(metrics["val_L2e"])
-        self.total_batches += step_len
+        
         metrics.update(
             {
-                "training_iteration": self.total_batches,
-                "time": self.total_epochs + step_len / self.batches_per_epoch,
+                "effective_epocs": self.train_sampler.effective_epochs
             }
         )
         return metrics
@@ -695,13 +701,13 @@ class CSTRTrainer_SEKF(BasicCSTRTrainer):
     def _scheduler(self, config):
         return SEKF_scheduler(self.optimizer)
 
-    def setup(self, config, data):
+    def setup(self, config):
         self._set_config(config)
         self._init_model(self.config)
         self._init_optimizer(self.config)
         self.loss_fn = nn.MSELoss()
         self.scheduler = self._scheduler(self.config)
-        self._setup(config, data)
+        self._setup(config)
 
     def _optimizer_step(self, batch):
         """Performs a single step of the SEKF optimizer."""
@@ -755,13 +761,13 @@ class CSTRTrainer_LBFGS(BasicCSTRTrainer):
             factor=self.config.get("lr_factor"),
         )
 
-    def setup(self, config, data):
+    def setup(self, config):
         self._set_config(config)
         self._init_model(self.config)
         self._init_optimizer(self.config)
         self.loss_fn = nn.MSELoss()
         self.scheduler = self._scheduler(self.config)
-        self._setup(config, data)
+        self._setup(config)
 
     def _optimizer_step(self, batch):
         """Performs a single step of the LBFGS optimizer."""
