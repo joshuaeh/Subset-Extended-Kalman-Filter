@@ -12,6 +12,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import ray
 from ray import tune
 from ray.tune.schedulers import ASHAScheduler
 from ray.tune.stopper import TrialPlateauStopper
@@ -113,21 +114,19 @@ class MLP(nn.Module):
 
 default_config = {
     "batch_size": 64,
-    "N_batches_per_step": 500,
+    "N_batches_per_step": 50,
     "initialize_weights": "random",  # or "finetune"
     "lr": 1e-3,
     "lr_patience": 20,
     "lr_factor": 0.5,
-    "max_epochs": 1000,
     "mask_fn_quantile_thresh": None,
     "log_frequency": None,
 }
 
 default_config_SEKF = {
     "batch_size": 1,
-    "N_batches_per_step": 500,
+    "N_batches_per_step": 50,
     "initialize_weights": "finetune",  # or "random"
-    "max_epochs": 1000,
     "mask_fn_quantile_thresh": None,
     "R": 0.1,
     "Q": 0.1,
@@ -138,9 +137,8 @@ default_config_SEKF = {
 
 default_config_LBFGS = {
     "batch_size": 1,
-    "N_batches_per_step": 500,
+    "N_batches_per_step": 50,
     "initialize_weights": "finetune",  # or "random"
-    "max_epochs": 1000,
     "lr": 1.0,
     "lr_max_iter": 20,
     "lr_history_size": 10,
@@ -169,13 +167,13 @@ class DampedSpringTrainer(tune.Trainable):
 
     """
 
-    def setup(self, config, data):
+    def setup(self, config):
         self._set_config(config)
         self._init_model(self.config)
         self._init_optimizer(self.config)
         self.loss_fn = nn.MSELoss()
         self.scheduler = self._scheduler(self.config)
-        self._setup(config, data)
+        self._setup(config)
 
     def _set_config(self, config):
         self.config = default_config | config
@@ -206,15 +204,14 @@ class DampedSpringTrainer(tune.Trainable):
             factor=self.config.get("lr_factor"),
         )
 
-    def _setup(self, config, data):
+    def _setup(self, config):
         """The portion that is common to all optimizers."""
         self.data = ray.get(config["data_ref"])
         self.train_sampler = PersistentSampler(
-            data["train_x"].shape[0],
+            self.data["train_x"].shape[0],
             seed=42
         )
         self.initial_weights = get_parameter_vector(self.model).detach().numpy()
-        self.data = data
 
     def _optimizer_step(self, x_batch, y_batch):
         """Performs a single step of the masked Adam optimizer."""
@@ -355,13 +352,13 @@ class DampedSpringTrainer_SEKF(DampedSpringTrainer):
     def _scheduler(self, config):
         return SEKF_scheduler(self.optimizer)
 
-    def setup(self, config, data):
+    def setup(self, config):
         self._set_config(config)
         self._init_model(self.config)
         self._init_optimizer(self.config)
         self.loss_fn = nn.MSELoss()
         self.scheduler = self._scheduler(self.config)
-        self._setup(config, data)
+        self._setup(config)
 
     def _optimizer_step(self, x_batch, y_batch):
         """Performs a single step of the SEKF optimizer."""
@@ -404,13 +401,13 @@ class DampedSpringTrainer_LBFGS(DampedSpringTrainer):
             factor=self.config.get("lr_factor"),
         )
 
-    def setup(self, config, data):
+    def setup(self, config):
         self._set_config(config)
         self._init_model(self.config)
         self._init_optimizer(self.config)
         self.loss_fn = nn.MSELoss()
         self.scheduler = self._scheduler(self.config)
-        self._setup(config, data)
+        self._setup(config)
 
     def _optimizer_step(self, x_batch, y_batch):
         """Performs a single step of the LBFGS optimizer."""

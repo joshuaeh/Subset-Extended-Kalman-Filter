@@ -1,24 +1,106 @@
 """retrain NN on target system data, randomly initializing weights each time."""
 
 # imports
+import ray
 from dampedSpring import *
 
 # constants
 
 # script
+# if __name__ == "__main__":
+#     initialization_dir = RESULTS_DIR.joinpath("transfer", "finetune")
+#     initialization_dir.mkdir(parents=True, exist_ok=True)
+#     for scenario in SCENARIOS:
+#         scenario_name = transfer_scenario_name(scenario)
+#         scenario_dir = initialization_dir.joinpath(scenario_name)
+#         scenario_dir.mkdir(parents=True, exist_ok=True)
+#         for data_dim in TARGET_DATA_DIM:
+#             data_dim_dir = scenario_dir.joinpath(data_dim_name(data_dim))
+#             data_dim_dir.mkdir(parents=True, exist_ok=True)
+#             for data_iteration in range(N_ITERATIONS):
+#                 data_iteration_dir = data_dim_dir.joinpath(
+#                     get_data_iteration_name(data_iteration)
+#                 )
+#                 data_iteration_dir.mkdir(parents=True, exist_ok=True)
 if __name__ == "__main__":
     if not ray.is_initialized():
         ray.init(ignore_reinit_error=True)
+        
+    ASHA_PARAMS = {
+        "time_attr": "training_iteration",
+        "max_t": 100,
+        # "grace_period": 0,
+        "reduction_factor": 4,
+    }
+    
+    TUNE_CONFIG = {
+        "metric": "val_loss",
+        "mode": "min",
+        "max_concurrent_trials": 4,
+        "num_samples": 50,
+    }
+    
+    RUN_CONFIG = {
+        "verbose": 1,
+        "storage_path": "/tmp/",
+    }
+    
+    CHECKPOINT_CONFIG = {
+        "checkpoint_score_attribute": "val_loss",
+        "checkpoint_score_order": "min",
+        "num_to_keep": 1,
+        "checkpoint_frequency": 100,
+    }
+    
     initialization_dir = RESULTS_DIR.joinpath("transfer", "finetune")
     initialization_dir.mkdir(parents=True, exist_ok=True)
-    for scenario in SCENARIOS:
-        scenario_name = transfer_scenario_name(scenario)
-        scenario_dir = initialization_dir.joinpath(scenario_name)
-        scenario_dir.mkdir(parents=True, exist_ok=True)
-        for data_dim in TARGET_DATA_DIM:
-            data_dim_dir = scenario_dir.joinpath(data_dim_name(data_dim))
-            data_dim_dir.mkdir(parents=True, exist_ok=True)
-            for data_iteration in range(N_ITERATIONS):
+    
+    # --- check how many are complete ---
+    n_complete = 0
+    for data_iteration in range(N_ITERATIONS):
+        for scenario in SCENARIOS:
+            scenario_name = transfer_scenario_name(scenario)
+            scenario_dir = initialization_dir.joinpath(scenario_name)
+            scenario_dir.mkdir(parents=True, exist_ok=True)
+            for data_dim in TARGET_DATA_DIM:
+                data_dim_dir = scenario_dir.joinpath(data_dim_name(data_dim))
+                data_dim_dir.mkdir(parents=True, exist_ok=True)
+
+                data_iteration_dir = data_dim_dir.joinpath(
+                    get_data_iteration_name(data_iteration)
+                )
+                data_iteration_dir.mkdir(parents=True, exist_ok=True)
+                
+                for method in ["adam", "sekf", "lbfgs"]:
+                    method_dir = data_iteration_dir.joinpath(method)
+                    method_dir.mkdir(parents=True, exist_ok=True)
+                    
+                    all_trials_path = method_dir.joinpath(ALL_TRIALS_BASE_FILENAME)
+                    best_result_path = method_dir.joinpath(BEST_RESULT_BASE_FILENAME)
+                    model_weights_path = method_dir.joinpath(MODEL_FILENAME)
+                    ray_results_path = method_dir.joinpath("ray_results.zip")
+                    if all(
+                        [
+                            all_trials_path.exists(),
+                            best_result_path.exists(),
+                            model_weights_path.exists(),
+                            ray_results_path.exists(),
+                        ]
+                    ):
+                        n_complete += 1
+    print(f"\n\n\nNumber of complete runs: {n_complete}\n\n\n")
+                        
+    # --- end: check how many are complete ---
+    
+    for data_iteration in range(N_ITERATIONS):
+        for scenario in SCENARIOS:
+            scenario_name = transfer_scenario_name(scenario)
+            scenario_dir = initialization_dir.joinpath(scenario_name)
+            scenario_dir.mkdir(parents=True, exist_ok=True)
+            for data_dim in TARGET_DATA_DIM:
+                data_dim_dir = scenario_dir.joinpath(data_dim_name(data_dim))
+                data_dim_dir.mkdir(parents=True, exist_ok=True)
+
                 data_iteration_dir = data_dim_dir.joinpath(
                     get_data_iteration_name(data_iteration)
                 )
@@ -65,13 +147,13 @@ if __name__ == "__main__":
                     ]
                 ):
                     print(
-                        f"Skipping existing results for {data_iteration_dir}, delete directory to rerun"
+                        f"Skipping existing results for {method_dir}, delete directory to rerun"
                     )
                 else:
                     config = {
                         "lr": tune.loguniform(1e-6, 1e-1),
                         "batch_size": tune.qlograndint(1, data_dim, 2),
-                        "N_batches_per_step": min(50, data_dim),
+                        "N_batches_per_step": 50,
                         "lr_patience": 10,
                         "lr_factor": tune.uniform(0.0, 1.0),
                         "mask_fn_quantile_thresh": tune.quniform(0.0, 1.0, 0.05),
@@ -79,39 +161,26 @@ if __name__ == "__main__":
                         "data_ref": data_ref,
                     }
 
-                    trial_stopper = TrialPlateauStopper(
-                        metric="val_loss",
-                        std=0.00001,
-                        num_results=50,
-                        grace_period=50,
-                        mode="min",
-                    )
+                    scheduler = ASHAScheduler(**ASHA_PARAMS)
 
                     tuner = tune.Tuner(
                         tune.with_resources(
-                            tune.with_parameters(DampedSpringTrainer, data=data),
+                            DampedSpringTrainer,
                             resources={"cpu": 1},
                         ),
                         tune_config=tune.TuneConfig(
-                            metric="val_loss",
-                            mode="min",
                             scheduler=scheduler,
-                            max_concurrent_trials=4,
-                            num_samples=100,
-                            # reuse_actors=True
+                            **TUNE_CONFIG
                         ),
                         param_space=config,
                         run_config=tune.RunConfig(
-                            verbose=1,
                             name=f"dampedSpring_transfer_adam_retrain_{scenario_name}_{data_dim_name(data_dim)}_{get_data_iteration_name(data_iteration)}",
                             # storage_path=RAY_STORAGE_PATH,
-                            storage_path="/tmp/",
                             checkpoint_config=tune.CheckpointConfig(
-                                num_to_keep=1,
-                                checkpoint_frequency=1000,
-                                checkpoint_at_end=True,
+                                **CHECKPOINT_CONFIG
                             ),
-                            stop=trial_stopper,
+                            **RUN_CONFIG
+    
                         ),
                     )
                     results = tuner.fit()
@@ -155,59 +224,41 @@ if __name__ == "__main__":
                     ]
                 ):
                     print(
-                        f"Skipping existing results for {data_iteration_dir}, delete directory to rerun"
+                        f"Skipping existing results for {method_dir}, delete directory to rerun"
                     )
                 else:
                     config = {
-                        "R": tune.choice([0, 0.01, 0.05, 0.1, 0.5, 1.0]),
-                        "Q": tune.choice([0, 1e-6, 1e-4, 1e-2, 1e-1]),
-                        "p0": tune.choice([0.01, 0.1, 0.5, 1.0, 10.0, 100.0]),
+                        # "R": tune.choice([0, 0.01, 0.05, 0.1, 0.5, 1.0]),
+                        "R": 0.01,
+                        "Q": tune.choice([1e-6, 1e-4, 1e-2, 1e-1]),
+                        "p0": tune.choice([0.01, 1.0, 10.0, 100.0]),
                         "batch_size": tune.qlograndint(1, min(20, data_dim), 2),
-                        "N_batches_per_step": min(50, data_dim),
-                        "mask_fn_quantile_thresh": tune.quniform(0.0, 1.0, 0.05),
+                        "N_batches_per_step": 50,
+                        "mask_fn_quantile_thresh": tune.quniform(0.05, 1.0, 0.05),
                         "initialize_weights": "finetune",
                         "data_ref": data_ref,
                     }
 
                     scheduler = ASHAScheduler(
-                        time_attr="training_iteration",
-                        max_t=100,
-                        grace_period=5,
-                        reduction_factor=2,
-                    )
-
-                    trial_stopper = TrialPlateauStopper(
-                        metric="val_loss",
-                        std=0.00001,
-                        num_results=10,
-                        grace_period=5,
-                        mode="min",
+                        **ASHA_PARAMS
                     )
 
                     tuner = tune.Tuner(
                         tune.with_resources(
-                            tune.with_parameters(DampedSpringTrainer_SEKF, data=data),
+                            DampedSpringTrainer_SEKF,
                             resources={"cpu": 1},
                         ),
                         tune_config=tune.TuneConfig(
-                            metric="val_loss",
-                            mode="min",
                             scheduler=scheduler,
-                            max_concurrent_trials=1,
-                            num_samples=100,
-                            # reuse_actors=True
+                            **TUNE_CONFIG
                         ),
                         param_space=config,
                         run_config=tune.RunConfig(
-                            verbose=1,
                             name=f"dampedSpring_transfer_sekf_retrain_{scenario_name}_{data_dim_name(data_dim)}_{get_data_iteration_name(data_iteration)}",
                             checkpoint_config=tune.CheckpointConfig(
-                                num_to_keep=1,
-                                checkpoint_frequency=100,
-                                checkpoint_at_end=True,
+                                **CHECKPOINT_CONFIG
                             ),
-                            storage_path="/tmp/",
-                            stop=trial_stopper,
+                            **RUN_CONFIG
                         ),
                     )
                     results = tuner.fit()
@@ -252,59 +303,44 @@ if __name__ == "__main__":
                     ]
                 ):
                     print(
-                        f"Skipping existing results for {data_iteration_dir}, delete directory to rerun"
+                        f"Skipping existing results for {method_dir}, delete directory to rerun"
                     )
                 else:
                     config = {
                         "lr": tune.loguniform(1e-6, 2),
                         "batch_size": tune.qlograndint(1, data_dim, 2),
-                        "max_iter": tune.choice([5, 20, 50, 100]),
-                        "lr_history_size": tune.choice([5, 10, 20, 40]),
-                        "lr_patience": tune.choice([10, 20, 40]),
+                        # "max_iter": tune.choice([5, 20, 50, 100]),
+                        "max_iter": 20,
+                        # "lr_history_size": tune.choice([5, 10, 20, 40]),
+                        "lr_history_size": 10,
+                        # "lr_patience": tune.choice([10, 20, 40]),
+                        "lr_patience": 10,
                         "lr_factor": tune.uniform(0.1, 1.0),
+                        "N_batches_per_step": 50,
                         "initialize_weights": "finetune",
                         "data_ref": data_ref,
                     }
 
                     scheduler = ASHAScheduler(
-                        time_attr="training_iteration",
-                        max_t=500,
-                        grace_period=50,
-                        reduction_factor=2,
-                    )
-
-                    trial_stopper = TrialPlateauStopper(
-                        metric="val_loss",
-                        std=0.00001,
-                        num_results=10,
-                        grace_period=50,
-                        mode="min",
+                        **ASHA_PARAMS
                     )
 
                     tuner = tune.Tuner(
                         tune.with_resources(
-                            tune.with_parameters(DampedSpringTrainer_LBFGS, data=data),
+                            DampedSpringTrainer_LBFGS,
                             resources={"cpu": 1},
                         ),
                         tune_config=tune.TuneConfig(
-                            metric="val_loss",
-                            mode="min",
                             scheduler=scheduler,
-                            max_concurrent_trials=4,
-                            num_samples=100,
-                            # reuse_actors=True
+                            **TUNE_CONFIG
                         ),
                         param_space=config,
                         run_config=tune.RunConfig(
-                            verbose=1,
                             name=f"dampedSpring_transfer_lbfgs_retrain_{scenario_name}_{data_dim_name(data_dim)}_{get_data_iteration_name(data_iteration)}",
                             checkpoint_config=tune.CheckpointConfig(
-                                num_to_keep=1,
-                                checkpoint_frequency=100,
-                                checkpoint_at_end=True,
+                                **CHECKPOINT_CONFIG
                             ),
-                            stop=trial_stopper,
-                            storage_path="/tmp/",
+                            **RUN_CONFIG
                         ),
                     )
                     results = tuner.fit()
