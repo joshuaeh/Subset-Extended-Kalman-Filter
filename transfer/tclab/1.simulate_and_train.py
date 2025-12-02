@@ -60,7 +60,7 @@ if True:
     val_test_index = int(len(df) * 0.9)
     
     config = {
-        "lr": tune.loguniform(1e-6, 1e-1),
+        "lr": tune.loguniform(1e-6, 1e-3),
         "batch_size": tune.choice([2**8, 2**10, 2**12]),
         "lr_patience": tune.choice([10, 20, 50, 100]),
         "lr_factor": tune.uniform(0.1, 0.9),
@@ -71,8 +71,10 @@ if True:
         "val_end_idx": val_test_index,
         "test_begin_idx": val_test_index,
         "test_end_idx": len(df),
-        "train_dataset_stride": 6
-        "N_batches_per_step": 500,
+        "train_dataset_stride": 18,
+        "val_dataset_stride": 6,
+        "test_dataset_stride": 6,
+        "N_batches_per_step": 50,
         
     }
     
@@ -99,12 +101,12 @@ if True:
             metric="val_L2e",
             mode="min",
             scheduler=scheduler,
-            max_concurrent_trials=2,
+            max_concurrent_trials=4,
             num_samples=50,
         ),
         param_space=config,
         run_config=tune.RunConfig(
-            verbose=0,
+            verbose=1,
             name="TCLabTraining",
             # storage_path=RAY_STORAGE_PATH,
             checkpoint_config=tune.CheckpointConfig(
