@@ -72,7 +72,9 @@ if __name__ == "__main__":
         month_end = month_start + MONTH_DAYS[month] * 24 * 60
         for training_days in [0.25, 1, 7]:
             for method in ["adam", "sekf", "lbfgs"]:
-                TRANSFER_RESULTS_DIR = RESULTS_DIR.joinpath("transfer","finetuning", f"month_{month+1}", f"days_{training_days}", method)
+    # --- run transfer finetuning experiments ---
+    if not ray.is_initialized():
+        ray.init(ignore_reinit_error=True)
                 TRANSFER_RESULTS_DIR.mkdir(parents=True, exist_ok=True)
                 counter += 1
                 print(f"Running transfer finetuning {counter} of {total_runs}: month {month+1}, days {training_days}, method {method}")
@@ -95,6 +97,9 @@ if __name__ == "__main__":
                         "test_y": transfer_data["Y"][validation_test_idx:month_end],
                         "test_u": transfer_data["U"][validation_test_idx:month_end],
                     }
+                    
+                    data_ref = ray.put(data)
+                    configs[method]["data_ref"] = data_ref
                     
                     scheduler = ASHAScheduler(
                         time_attr="training_iteration",
@@ -160,5 +165,4 @@ if __name__ == "__main__":
                         results.experiment_path,
                         ray_results_path,
                     )
-            
-            
+    ray.shutdown()        

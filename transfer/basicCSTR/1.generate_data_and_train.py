@@ -1,6 +1,8 @@
 """Generate operating data and train Neural ODE"""
 
 # imports
+import ray
+
 from basicCSTR import *
 
 # constants
@@ -51,12 +53,15 @@ if __name__ == "__main__":
             "test_u": res["U"][val_test_index:],
         }
         
+        data_ref = ray.put(data)
+        
         config = {
             "lr": tune.loguniform(1e-4, 1e-1),
             "batch_size": tune.choice([16, 32, 64, 128]),
             "lr_patience": tune.choice([10, 20, 50, 100]),
             "lr_factor": tune.uniform(0.1, 0.9),
             "scaling": tune.choice([True, False]),
+            "data_ref": data_ref,
         }
         
         scheduler = ASHAScheduler(
@@ -67,7 +72,7 @@ if __name__ == "__main__":
         
         tuner = tune.Tuner(
             tune.with_resources(
-                tune.with_parameters(BasicCSTRTrainer, data=data),
+                BasicCSTRTrainer,
                 resources={"cpu": 1},
             ),
             tune_config=tune.TuneConfig(
