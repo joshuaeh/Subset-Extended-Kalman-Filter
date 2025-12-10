@@ -22,7 +22,7 @@ best_data = []
 n_complete = 0
 n_total = 0
 
-for init_method in ["retraining", "finetuning"]:
+for init_method in ["retraining", "finetune"]:
     for month in range(12):
         month_start = sum(MONTH_DAYS[:month]) * 24 * 60
         month_end = month_start + MONTH_DAYS[month] * 24 * 60
