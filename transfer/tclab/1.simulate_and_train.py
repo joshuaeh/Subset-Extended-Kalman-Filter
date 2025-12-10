@@ -56,6 +56,11 @@ else:
 # train model
 # if not MODEL0_PATH.exists():
 if True:
+    if not ray.is_initialized():
+        ray.init(ignore_reinit_error=True)
+        
+    data_ref = ray.put(df)
+    
     train_val_index = int(len(df) * 0.8)
     val_test_index = int(len(df) * 0.9)
     
@@ -75,12 +80,13 @@ if True:
         "val_dataset_stride": 6,
         "test_dataset_stride": 6,
         "N_batches_per_step": 50,
+        "data_ref": data_ref,
         
     }
     
     scheduler = ASHAScheduler(
         max_t=500,
-        grace_period=20,
+        # grace_period=20,
         reduction_factor=2
     )
     
@@ -88,20 +94,20 @@ if True:
         metric="val_L2e",
         std=0.00001,
         num_results=10,
-        grace_period=20,
+        # grace_period=20,
         mode="min",
     )
     
     tuner = tune.Tuner(
         tune.with_resources(
-            tune.with_parameters(TCLabTrainer, data=df),
+            TCLabTrainer,
             resources={"cpu": 1},
         ),
         tune_config=tune.TuneConfig(
             metric="val_L2e",
             mode="min",
             scheduler=scheduler,
-            max_concurrent_trials=4,
+            max_concurrent_trials=8,
             num_samples=50,
         ),
         param_space=config,
