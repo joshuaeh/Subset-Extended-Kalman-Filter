@@ -157,3 +157,5 @@ transfer/dampedSpring/results/*
 _transfer/*
 transfer/basicCSTR/data/*
 transfer/basicCSTR/results/*
+transfer/tclab/data/*/*
+transfer/tclab/results/*/*
