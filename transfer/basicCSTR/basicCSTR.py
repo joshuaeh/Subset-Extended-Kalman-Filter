@@ -711,10 +711,11 @@ class CSTRTrainer_SEKF(BasicCSTRTrainer):
 
     def _optimizer_step(self, batch):
         """Performs a single step of the SEKF optimizer."""
+        self.optimizer.zero_grad()
         y_pred = self.model(batch["y0"], batch["u"])
         e = batch["y1"] - y_pred
-        if torch.isnan(e).any():
-            self.reset()
+        # if torch.isnan(e).any():
+        #     self.stop()
 
         if self.config.get("mask_fn_quantile_thresh", None) is not None:
             loss = self.loss_fn(y_pred, batch["y1"])
@@ -776,8 +777,8 @@ class CSTRTrainer_LBFGS(BasicCSTRTrainer):
             self.optimizer.zero_grad()
             y_pred = self.model(batch["y0"], batch["u"])
             loss = self.loss_fn(y_pred, batch["y1"])
-            if torch.isnan(loss).any():
-                self.reset()
+            # if torch.isnan(loss).any():
+            #     self.stop()
             loss.backward()
             return loss
 
