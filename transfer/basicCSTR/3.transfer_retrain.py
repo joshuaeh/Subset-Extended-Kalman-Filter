@@ -95,7 +95,7 @@ if __name__ == "__main__":
     TUNE_CONFIG = {
         "metric": "val_L2e",
         "mode": "min",
-        "max_concurrent_trials": 4,
+        "max_concurrent_trials": 10,
         "num_samples": 50,
         # "reuse_actors": True
     }
