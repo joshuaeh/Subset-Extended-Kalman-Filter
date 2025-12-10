@@ -15,7 +15,7 @@ class PersistentSampler:
     
     def __init__(self, dataset_size: int, seed: int = 42):
         self.dataset_size = dataset_size
-        self.indices = np.arange(dataset_size)
+        self.indices = np.arange(dataset_size, dtype=np.int32)
         self.rng = np.random.default_rng(seed)
         self.rng.shuffle(self.indices)
         self.position = 0
