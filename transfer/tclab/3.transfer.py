@@ -14,7 +14,7 @@ if __name__ == "__main__":
     
     # train data
     train_df = pd.read_csv("data/tclab_sim_data.csv")
-    X_data = train_df[["Ta1", "Ta2"]].to_numpy()[:int(0.8*len(train_df))]
+    X_data = train_df[["T1", "T2"]].to_numpy()[:int(0.8*len(train_df))]
     U_data = train_df[["Q1", "Q2", "Ta"]].to_numpy()[:int(0.8*len(train_df))]
     train_x_scale = X_data.std(axis=0)
     train_x_mean = X_data.mean(axis=0)
@@ -33,6 +33,12 @@ if __name__ == "__main__":
     df["valid"] = ((df["dt"] > 9.9) & (df["dt"] < 10.1))
     df["invalid"] = ~df["valid"]
     df = df["2025-10-01":]  # only keep the 7 contiguous days
+    df.reset_index(drop=True, inplace=True)
+    
+    if not ray.is_initialized():
+        ray.init(ignore_reinit_error=True)
+        
+    data_ref = ray.put(df)
     
     METHODS = {
         "SEKF": TCLabTrainer_SEKF, 
@@ -43,9 +49,13 @@ if __name__ == "__main__":
     counter = 0
     total_runs = 2 * 5 * 4 * 3
     
-    for initialization_name, initialization_config in INITIALIZATIONS.items():
-        for day in range(DAYS):
-            for data_dim_name, data_dim in DATA_DIM.items():
+    # for initialization_name, initialization_config in INITIALIZATIONS.items():
+    #     for day in range(DAYS):
+    #         for data_dim_name, data_dim in DATA_DIM.items():
+    #             for method, trainer in METHODS.items():
+    for day in range(DAYS): 
+        for data_dim_name, data_dim in DATA_DIM.items():
+            for initialization_name, initialization_config in INITIALIZATIONS.items():
                 for method, trainer in METHODS.items():
                     
                     counter += 1
@@ -62,8 +72,9 @@ if __name__ == "__main__":
                         configs = {
                             "Adam": {
                                 "lr": tune.loguniform(1e-6, 1e-1),
-                                "batch_size": tune.qlograndint(1, int(0.9*data_dim)-60, 2),
-                                "lr_patience": tune.choice([10, 20, 50, 100]),
+                                "batch_size": tune.qlograndint(1, min(20, int(0.9*data_dim)-60), 2),
+                                # "lr_patience": tune.choice([10, 20, 50, 100]),
+                                "lr_patience": 10,
                                 "lr_factor": tune.uniform(0.1, 0.9),
                                 "mask_fn_quantile_thresh": tune.uniform(0.0, 1.0),
                                 "initialize_weights": "random"
@@ -80,17 +91,28 @@ if __name__ == "__main__":
                             },
                             "LBFGS": {
                                 "lr": tune.loguniform(1e-6, 1e0),
-                                "batch_size": tune.qlograndint(1, int(0.9*data_dim)-60, 2),
-                                "lr_max_iter": tune.choice([5, 10, 20, 50]),
-                                "lr_history_size": tune.choice([5, 10, 20]),
-                                "lr_patience": tune.choice([10, 20, 50, 100]),
+                                "batch_size": tune.qlograndint(1, min(20, int(0.9*data_dim)-60), 2),
+                                # "lr_max_iter": tune.choice([5, 10, 20, 50]),
+                                # "lr_history_size": tune.choice([5, 10, 20]),
+                                "lr_max_iter": 20,
+                                "lr_history_size": 10,
+                                # "lr_patience": tune.choice([10, 20, 50, 100]),
+                                "lr_patience": 10,
                                 "lr_factor": tune.uniform(0.1, 0.9),
                                 "initialize_weights": "random",
                             }
                         }
                     
-                        # get data for day
-                        train_count = int(0.9 * data_dim)
+                        # get data for day.
+                        # ensure that validation dataset has one full sequence
+                        match data_dim_name:
+                            case "0.5hr": 
+                                train_count = int(0.5 * data_dim)
+                            case "1hr":
+                                train_count = int(0.5 * data_dim)
+                            case _:
+                                train_count = int(0.9 * data_dim)
+                        # train_count = int(0.9 * data_dim)
                         train_begin_idx = day * MEASUREMENTS_PER_DAY
                         train_end_idx = train_begin_idx + train_count
                         val_begin_idx = train_end_idx
@@ -98,55 +120,59 @@ if __name__ == "__main__":
                         test_begin_idx = 5 * MEASUREMENTS_PER_DAY
                         test_end_idx = 7 * MEASUREMENTS_PER_DAY
                         
+                        
                         config = configs[method].copy()
                         config.update({
                             "initialize_weights": initialization_config,
-                            "x_scale": train_x_scale,
-                            "x_mean": train_x_mean,
-                            "u_scale": train_u_scale,
-                            "u_mean": train_u_mean,
+                            "scaling": False,
+                            # "x_scale": train_x_scale,
+                            # "x_mean": train_x_mean,
+                            # "u_scale": train_u_scale,
+                            # "u_mean": train_u_mean,
+                            "data_ref": data_ref,
                             "train_begin_idx": train_begin_idx,
                             "train_end_idx": train_end_idx,
                             "val_begin_idx": val_begin_idx,
                             "val_end_idx": val_end_idx,
                             "test_begin_idx": test_begin_idx,
                             "test_end_idx": test_end_idx,
+                            "N_batches_per_step": 50
                         })
                         if initialization_name == "retrain":
                             config["mask_fn_quantile_thresh"] = None  # no masking for retrain
+                            
+                            
                         
                         # ---
                         scheduler = ASHAScheduler(
                             time_attr="training_iteration",
-                            max_t=1000,
-                            grace_period=50,
-                            reduction_factor=2,
+                            max_t=100,
+                            reduction_factor=4,
                         )
 
                         trial_stopper = TrialPlateauStopper(
                             metric="val_loss",
-                            std=0.00001,
+                            std=0.000001,
                             num_results=10,
-                            grace_period=50,
                             mode="min",
                         )
 
                         tuner = tune.Tuner(
                             tune.with_resources(
-                                tune.with_parameters(trainer, data=df),
+                                trainer,
                                 resources={"cpu": 1},
                             ),
                             tune_config=tune.TuneConfig(
                                 metric="val_L2e",
                                 mode="min",
                                 scheduler=scheduler,
-                                max_concurrent_trials=2,
+                                max_concurrent_trials=4,
                                 num_samples=50,
                                 # reuse_actors=True
                             ),
                             param_space=config,
                             run_config=tune.RunConfig(
-                                verbose=0,
+                                verbose=1,
                                 name=f"tclab_{initialization_name}_day{day}_{data_dim_name}_{method}",
                                 # storage_path=RAY_STORAGE_PATH,
                                 storage_path="/tmp/",
@@ -182,7 +208,6 @@ if __name__ == "__main__":
                             ray_results_path,
                         )
                         
-                            
                         
                     
                     
