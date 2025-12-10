@@ -25,7 +25,7 @@ from dampedSpring import *
 if __name__ == "__main__":
     if not ray.is_initialized():
         ray.init(ignore_reinit_error=True)
-        
+            
     ASHA_PARAMS = {
         "time_attr": "training_iteration",
         "max_t": 100,
@@ -50,6 +50,7 @@ if __name__ == "__main__":
         "checkpoint_score_order": "min",
         "num_to_keep": 1,
         "checkpoint_frequency": 100,
+        "checkpoint_at_end": True,
     }
     
     
@@ -129,6 +130,8 @@ if __name__ == "__main__":
                 }
                 
                 data_ref = ray.put(data)
+                
+                # experiment stopper if no improvement after 
 
                 ### Adam
                 method_dir = data_iteration_dir.joinpath("adam")
@@ -152,14 +155,15 @@ if __name__ == "__main__":
                     config = {
                         "lr": tune.loguniform(1e-6, 1e-1),
                         "batch_size": tune.qlograndint(1, data_dim, 2),
-                        "N_batches_per_step": 50,
+                        "N_batches_per_step": 10,
                         "lr_patience": 10,
                         "lr_factor": tune.uniform(0.0, 1.0),
                         # "mask_fn_quantile_thresh": tune.quniform(0.0, 1.0, 0.05),
                         "initialize_weights": "random",
                         "data_ref": data_ref,
                     }
-
+                    _ASHA_PARAMS = ASHA_PARAMS.copy()
+                    _ASHA_PARAMS["max_t"] = 50
                     scheduler = ASHAScheduler(**ASHA_PARAMS)
 
                     tuner = tune.Tuner(
@@ -231,8 +235,8 @@ if __name__ == "__main__":
                         "R": 0.01,
                         "Q": tune.choice([1e-6, 1e-4, 1e-2, 1e-1]),
                         "p0": tune.choice([0.01, 1.0, 10.0, 100.0]),
-                        "batch_size": tune.qlograndint(1, min(20, data_dim), 2),
-                        "N_batches_per_step": 50,
+                        "batch_size": tune.choice([1, 2, 4, 8]),
+                        "N_batches_per_step": 10,
                         # "mask_fn_quantile_thresh": tune.quniform(0.05, 1.0, 0.05),
                         "initialize_weights": "random",
                         "data_ref": data_ref,
@@ -315,7 +319,7 @@ if __name__ == "__main__":
                         # "lr_patience": tune.choice([10, 20, 40]),
                         "lr_patience": 10,
                         "lr_factor": tune.uniform(0.1, 1.0),
-                        "N_batches_per_step": 50,
+                        "N_batches_per_step": 10,
                         "initialize_weights": "random",
                         "data_ref": data_ref,
                     }
