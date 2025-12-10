@@ -14,7 +14,7 @@ CLOBBER_EXISTING = False
 MOVE_RAY_RESULTS = False
 
 scratch_transfer_dir = Path("/scratch/08940/joshuaeh/Subset-Extended-Kalman-Filter/transfer/")
-work_transfer_dir = Path("/work/08940/joshuaeh/projects/Updating Neural Networks/Subset-Extended-Kalman-Filter/transfer/")
+work_transfer_dir = Path("/work/08940/joshuaeh/ls6/projects/Updating Neural Networks/Subset-Extended-Kalman-Filter/transfer/")
 
 results = []
 best_data = []
