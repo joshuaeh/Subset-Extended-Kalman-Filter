@@ -1,10 +1,12 @@
 import datetime
 from pathlib import Path
+import shutil
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import ray
 from ray import tune
 from ray.tune.schedulers import ASHAScheduler
 from ray.tune.stopper import TrialPlateauStopper
@@ -25,22 +27,24 @@ colors = sns.color_palette("colorblind", 10)
 GENERATED_DATA_FILENAME = "tclab_sim_data.csv"
 MEASURED_DATA_FILENAME = "tclab_measured_data.csv"
 MODEL_FILENAME = "tclab_model.pth"
-MODEL0_PATH = Path("results").joinpath(MODEL_FILENAME)
 OPTIMIZER_FILENAME = "tclab_optimizer.pth"
-RESULTS_DIR = Path("results")
+# MODEL0_PATH = Path("results").joinpath(MODEL_FILENAME)
+RESULTS_DIR = Path("/home1/08940/joshuaeh/SCRATCH/Subset-Extended-Kalman-Filter/transfer/tclab/results/")
+# RESULTS_DIR = Path("results")
 RESULTS_DIR.mkdir(exist_ok=True)
+MODEL0_PATH = RESULTS_DIR.joinpath(MODEL_FILENAME)
 ALL_TRIALS_BASE_FILENAME = "all_trials_results.csv"
 BEST_RESULT_BASE_FILENAME = "best_result.csv"
 RAY_STORAGE_PATH = "/home1/08940/joshuaeh/SCRATCH/Subset-Extended-Kalman-Filter/transfer/tclab/data/ray_results"
 
 MEASUREMENTS_PER_DAY = 6 * 60 * 24  # 8640
-INITIALIZATION = {
+INITIALIZATIONS = {
     "retrain": "random",
     "finetune": "finetune",
 }
 DAYS = 5
 DATA_DIM = {
-    "0.25hr": 15 * 6,
+    "0.5hr": 30 * 6,
     "1hr": 60 * 6,
     "4hr": 4 * 60 * 6,
     "12hr": 12 * 60 * 6,
@@ -109,7 +113,7 @@ def format_data(
     # state_cols=["T1_noisy", "T2_noisy", "Ta_noisy"],
     state_cols=["T1", "T2"],
     context_length=1,
-    prediction_length=60,
+    prediction_length=30,
     stride=1,
     name=None,
     device=None,
@@ -135,12 +139,12 @@ def format_data(
     U = torch.tensor(U, device=device, dtype=dtype)
 
     # convert to dataset/sequences
-    idx = (
-        torch.arange(begin_idx, end_idx)
-        .unfold(0, context_length + prediction_length, stride)
-        .cpu()
-        .numpy()
-    )
+    # idx = (
+    #     torch.arange(begin_idx, end_idx)
+    #     .unfold(0, context_length + prediction_length, stride)
+    #     .cpu()
+    #     .numpy()
+    # )
     X = X.unfold(0, context_length + prediction_length, stride).permute(0, 2, 1)
     U = U.unfold(0, context_length + prediction_length, stride).permute(0, 2, 1)
 
@@ -205,7 +209,7 @@ default_config = {
     "lr_factor": 0.5,
     "scaling": True,
     "mask_fn_quantile_thresh": None,
-    "N_batches_per_step": 1,
+    "N_batches_per_step": 10,
 }
 
 class TCLabTrainer(tune.Trainable):
@@ -289,7 +293,7 @@ class TCLabTrainer(tune.Trainable):
         if config.get("u_mean", False):
             self.u_scaler.mean_ = config.get("u_mean")
         
-    def _setup(self, config, data):
+    def _setup(self, config):
         """the portion of setup that will be the same in child classes."""
         # create datasts and dataloaders
         data = ray.get(self.config["data_ref"])
@@ -314,6 +318,14 @@ class TCLabTrainer(tune.Trainable):
             device=torch.get_default_device(),
             dtype=torch.get_default_dtype(),
         )
+        # n_training_samples = train_dataset["y0"].shape[0]
+        # train_val_idx = int(0.9 * n_training_samples)
+        # self.train_dataset = {
+        #     k: v[:train_val_idx] for k, v in train_dataset.items()
+        # }
+        # self.val_dataset = {
+        #     k: v[train_val_idx:] for k, v in train_dataset.items()
+        # }
         self.test_dataset = format_data(
             data,
             self.x_scaler,
@@ -439,6 +451,7 @@ default_config_SEKF = {
     "Q": 0.1,
     "p0": 100.0,
     "log_frequency": None,
+    "N_batches_per_step": 10,
 }
 
 class TCLabTrainer_SEKF(TCLabTrainer):
@@ -470,10 +483,11 @@ class TCLabTrainer_SEKF(TCLabTrainer):
 
     def _optimizer_step(self, batch):
         """Performs a single step of the SEKF optimizer."""
+        self.optimizer.zero_grad()
         y_pred = self.model(batch["y0"], batch["u"])
         e = batch["y1"] - y_pred
-        if torch.isnan(e).any():
-            self.reset()
+        # if torch.isnan(e).any():
+        #     self.reset()
 
         if self.config.get("mask_fn_quantile_thresh", None) is not None:
             loss = self.loss_fn(y_pred, batch["y1"])
@@ -494,6 +508,7 @@ default_config_LBFGS = {
     "lr_history_size": 10,
     "lr_patience": 20,
     "lr_factor": 0.5,
+    "N_batches_per_step": 10,
 }
 
 class TCLabTrainer_LBFGS(TCLabTrainer):
@@ -534,8 +549,8 @@ class TCLabTrainer_LBFGS(TCLabTrainer):
             self.optimizer.zero_grad()
             y_pred = self.model(batch["y0"], batch["u"])
             loss = self.loss_fn(y_pred, batch["y1"])
-            if torch.isnan(loss).any():
-                self.reset()
+            # if torch.isnan(loss).any():
+            #     self.reset()
             loss.backward()
             return loss
 
