@@ -146,8 +146,8 @@ if __name__ == "__main__":
         month_start = sum(MONTH_DAYS[:month]) * 24 * 60
         month_end = month_start + MONTH_DAYS[month] * 24 * 60
         for training_days in [0.25, 1, 7]:
-            # for method in ["adam", "sekf", "lbfgs"]:
-            for method in ["adam", "lbfgs"]:
+            for method in ["adam", "sekf", "lbfgs"]:
+            # for method in ["adam", "lbfgs"]:
                 TRANSFER_RESULTS_DIR = RESULTS_DIR.joinpath("transfer","finetune", f"month_{month+1}", f"days_{training_days}", method)
                 TRANSFER_RESULTS_DIR.mkdir(parents=True, exist_ok=True)
                 counter += 1
